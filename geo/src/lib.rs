@@ -13,6 +13,38 @@ pub struct Coordinate {
 
 pub type GcCodes = Vec<String>;
 
+#[derive(Debug)]
+pub struct Geocache {
+    pub code: String,
+    pub name: String,
+    pub terrain: f32,
+    pub difficulty: f32,
+    pub coord: Coordinate,
+    pub short_description: String,
+    pub long_description: String,
+    pub encoded_hints: String,
+    pub size: ContainerSize,
+    pub cache_type: CacheType,
+}
+
+#[derive(Debug)]
+pub enum ContainerSize {
+    Large,
+    Medium,
+    Small,
+    Nano,
+    Unknown,
+}
+
+#[derive(Debug)]
+pub enum CacheType {
+    Traditional,
+    Multi,
+    Earth,
+    Webcam,
+    Mystery,
+    Wherigo,
+}
 
 impl Tile {
     pub fn from_coordinates(lat: f64, lon: f64, z: u32) -> Self {

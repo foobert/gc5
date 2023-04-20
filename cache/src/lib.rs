@@ -1,4 +1,4 @@
-use geo::{GcCodes, Tile};
+use geo::{GcCodes, Tile, Geocache, Coordinate};
 use groundspeak::Groundspeak;
 
 use log::info;
@@ -34,6 +34,23 @@ impl Cache {
             .connect("sqlite:gc.db").await?;
         let gs = Groundspeak::new();
         Ok(Self { db: pool, groundspeak: gs })
+    }
+
+    pub async fn find_tile(&self, tile: &Tile) -> Result<Vec<Geocache>, Error> {
+        let result : Vec<Geocache> = vec![];
+        Ok(result)
+    }
+
+    pub async fn find_near(&self, center: &Coordinate, radius: usize) -> Result<Vec<Geocache>, Error> {
+        Err(Error::Unknown)
+    }
+
+    pub async fn find(&self, top_left: &Coordinate, bottom_right: &Coordinate) -> Result<Vec<Geocache>, Error> {
+        Err(Error::Unknown)
+    }
+
+    pub async fn get(&self, code: &str) -> Result<Geocache, Error> {
+        Err(Error::Unknown)
     }
 
     pub async fn discover(&self, tile: &Tile) -> Result<Timestamped<GcCodes>, Error> {

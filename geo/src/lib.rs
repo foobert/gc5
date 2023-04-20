@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug)]
 pub struct Tile {
     pub x: u32,
@@ -9,6 +11,12 @@ pub struct Tile {
 pub struct Coordinate {
     pub lat: f64,
     pub lon: f64,
+}
+
+impl fmt::Display for Coordinate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.lat, self.lon)
+    }
 }
 
 pub type GcCodes = Vec<String>;

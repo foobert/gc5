@@ -146,18 +146,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
 
 [[package]]
-name = "cache"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "geo",
- "groundspeak",
- "log",
- "sqlx",
- "thiserror",
-]
-
-[[package]]
 name = "cc"
 version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -620,16 +608,14 @@ dependencies = [
 name = "gc"
 version = "0.1.0"
 dependencies = [
- "cache",
  "chrono",
- "env_logger",
  "geo",
- "groundspeak",
  "log",
- "rocket",
+ "reqwest",
+ "serde",
+ "serde_json",
  "sqlx",
  "thiserror",
- "tokio",
 ]
 
 [[package]]
@@ -675,19 +661,6 @@ name = "glob"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
-
-[[package]]
-name = "groundspeak"
-version = "0.1.0"
-dependencies = [
- "geo",
- "log",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror",
-]
 
 [[package]]
 name = "h2"
@@ -2653,6 +2626,21 @@ name = "wasm-bindgen-shared"
 version = "0.2.84"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0046fef7e28c3804e5e38bfa31ea2a0f73905319b677e57ebe37e49358989b5d"
+
+[[package]]
+name = "web"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "gc",
+ "geo",
+ "log",
+ "rocket",
+ "sqlx",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "web-sys"

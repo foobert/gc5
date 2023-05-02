@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use geo::Tile;
 use std::collections::HashMap;
 
-const BATCH_SIZE: usize = 50;
+pub const BATCH_SIZE: usize = 50;
 
 pub struct Groundspeak {
     client: reqwest::Client,
@@ -13,6 +13,7 @@ pub struct Groundspeak {
 
 pub type GcCodes = Vec<String>;
 
+#[derive(Deserialize, Debug)]
 pub struct Geocache {
 }
 
@@ -41,8 +42,8 @@ struct StatusObject {
 }
 
 impl GroundspeakFetchResponse {
-    fn get_raw(&self) -> HashMap<String, serde_json::Value> {
-        self.geocaches.clone().into_iter().map(|gc| (gc["Code"].to_string(), gc)).collect()
+    fn get_raw(&self) -> Vec<serde_json::Value> {
+        self.geocaches.clone()
     }
 }
 
@@ -109,7 +110,9 @@ impl Groundspeak {
         let info = response.json::<GroundspeakTileResponse>().await?;
 
         // TODO strings are copied, can we do it without copying?
-        let codes: GcCodes = info.data.values().flat_map(|v| v.iter().map(|o| String::from(&o.i) )).collect();
+        let codes_set: std::collections::BTreeSet<String> = info.data.values().flat_map(|v| v.iter().map(|o| String::from(&o.i) )).collect();
+        let codes = Vec::from_iter(codes_set.into_iter());
+
 
         debug!("codes: {:#?}", codes);
         info!("Found {} codes", codes.len());
@@ -117,17 +120,17 @@ impl Groundspeak {
         Ok(codes)
     }
 
-    pub async fn fetch(&self, codes: Vec<String>) -> Result<HashMap<String, serde_json::Value>, Error> {
-        let mut result = HashMap::new();
+    pub async fn fetch(&self, codes: Vec<String>) -> Result<Vec<serde_json::Value>, Error> {
+        let mut result = Vec::new();
         for chunk in codes.chunks(BATCH_SIZE) {
             // TODO whats the difference between Vec and slice aka &[String] ?
-            let chunk_of_caches = self.fetch_chunk(chunk.to_vec()).await?;
-            result.extend(chunk_of_caches);
+            let mut chunk_of_caches = self.fetch_chunk(chunk.to_vec()).await?;
+            result.append(&mut chunk_of_caches);
         }
         Ok(result)
     }
 
-    async fn fetch_chunk(&self, chunk: Vec<String>) -> Result<HashMap<String, serde_json::Value>, Error> {
+    async fn fetch_chunk(&self, chunk: Vec<String>) -> Result<Vec<serde_json::Value>, Error> {
         // let test_chunk = vec!["GC95978","GC3MP1K"].iter().map(|s| s.to_string()).collect();
         info!("fetch chunk {}", chunk.len());
         let request = RequestBody {
@@ -153,8 +156,17 @@ impl Groundspeak {
         let json = response.json::<GroundspeakFetchResponse>().await?;
         info!("fetch status {}", json.status.status_code);
         let raw = json.get_raw();
-        info!("raw: {:#?}", raw);
+        //info!("raw: {:#?}", raw);
         Ok(raw)
+    }
+
+    pub fn parse(&self, value: serde_json::Value) -> Result<Geocache, Error> {
+        match serde_json::from_value(value) {
+            Ok(value) => Ok(value),
+            Err(_) => 
+                // wtf
+                Err(Error::Unknown)
+        }
     }
 
     pub fn access_token(&self) -> String {

@@ -1,4 +1,5 @@
 use std::fmt;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug)]
 pub struct Tile {
@@ -7,7 +8,7 @@ pub struct Tile {
     pub z: u32,
 }
 
-#[derive(Debug)]
+#[derive(Serialize,Deserialize,Debug)]
 pub struct Coordinate {
     pub lat: f64,
     pub lon: f64,
@@ -21,7 +22,8 @@ impl fmt::Display for Coordinate {
 
 pub type GcCodes = Vec<String>;
 
-#[derive(Debug)]
+#[derive(Serialize,Deserialize,Debug)]
+#[serde(rename_all="PascalCase")]
 pub struct Geocache {
     pub code: String,
     pub name: String,
@@ -35,7 +37,7 @@ pub struct Geocache {
     pub cache_type: CacheType,
 }
 
-#[derive(Debug)]
+#[derive(Serialize,Deserialize,Debug)]
 pub enum ContainerSize {
     Large,
     Medium,
@@ -44,7 +46,7 @@ pub enum ContainerSize {
     Unknown,
 }
 
-#[derive(Debug)]
+#[derive(Serialize,Deserialize,Debug)]
 pub enum CacheType {
     Traditional,
     Multi,

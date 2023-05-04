@@ -1,15 +1,14 @@
-use geo::{GcCodes, Tile, Geocache, Coordinate};
 use crate::groundspeak::Groundspeak;
+use geo::{Coordinate, GcCodes, Geocache, Tile};
 
-use log::info;
 use chrono::prelude::*;
-use sqlx::Row;
+use futures::{future::ready, stream, StreamExt};
+use log::{debug, info, error};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::Row;
 use thiserror::Error;
-use futures::{stream,StreamExt};
 
 pub mod groundspeak;
-pub mod st;
 
 pub struct Cache {
     db: sqlx::PgPool,
@@ -18,6 +17,8 @@ pub struct Cache {
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("gc")]
+    Geocaching,
     #[error("db error")]
     Database(#[from] sqlx::Error),
     #[error("groundspeak")]
@@ -31,32 +32,37 @@ pub enum Error {
 impl Cache {
     pub fn new(pool: sqlx::PgPool) -> Self {
         let gs = Groundspeak::new();
-        return Self { db: pool, groundspeak: gs };
+        return Self {
+            db: pool,
+            groundspeak: gs,
+        };
     }
 
     pub async fn new_lite() -> Result<Self, Error> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect("postgres://localhost/gc").await?;
+            .connect("postgres://localhost/gc")
+            .await?;
         let gs = Groundspeak::new();
-        Ok(Self { db: pool, groundspeak: gs })
+        Ok(Self {
+            db: pool,
+            groundspeak: gs,
+        })
     }
 
     pub async fn find_tile(&self, tile: &Tile) -> Result<Timestamped<Vec<Geocache>>, Error> {
-        let result : Vec<Geocache> = vec![];
+        let result: Vec<Geocache> = vec![];
         let codes = self.discover(tile).await?;
         self.get(codes.data).await?;
         Ok(Timestamped::now(result))
     }
 
-    pub async fn find_near(&self, center: &Coordinate, radius: usize) -> Result<Vec<Geocache>, Error> {
-        info!("find_near {}, {}", center, radius);
-        // needed? based on the assumption that we can do an efficient api call with search radius
-        // and that might be a nice use case, but haven't used it that much yet?
-        Err(Error::Unknown)
-    }
-
-    pub async fn find(&self, top_left: &Coordinate, bottom_right: &Coordinate, sloppy: bool) -> Result<Vec<Geocache>, Error> {
+    pub async fn find(
+        &self,
+        top_left: &Coordinate,
+        bottom_right: &Coordinate,
+        sloppy: bool,
+    ) -> Result<Vec<Geocache>, Error> {
         info!("find {} {} {}", top_left, bottom_right, sloppy);
         // translate into tiles, then discover tiles and fetch them
         // optionally: filter afterwards to make sure all gcs are within bounds
@@ -74,78 +80,69 @@ impl Cache {
                 None => cache_miss.push(code),
             }
         }
-        info!("Fetching {} geocaches, {} from DB and {} from Groundspeak",
-              codes_len,
-              cache_hit.len(),
-              cache_miss.len());
+        info!(
+            "Fetching {} geocaches, {} from DB and {} from Groundspeak",
+            codes_len,
+            cache_hit.len(),
+            cache_miss.len()
+        );
 
-        let fetched: Vec<serde_json::Value> = stream::iter(cache_miss)
+        let mut fetched: Vec<Geocache> = stream::iter(&cache_miss)
             .chunks(groundspeak::BATCH_SIZE)
             .then(|x| self.groundspeak.fetch(x))
-            .map(|x| x.unwrap())
+            .filter_map(|x| ready(x.ok()))
             .flat_map(stream::iter)
             .then(|x| self.save_geocache(x))
+            .filter_map(|x| ready(x.ok()))
             .collect()
             .await;
 
-        fetched.into_iter().map(|json| serde_json::from_value::<Geocache>(json)).filter_map(|x| x.ok()).for_each(|gc| cache_hit.push(gc));
-        return Ok(cache_hit);
+        if fetched.len() < cache_miss.len() {
+            return Err(Error::Geocaching);
+        }
+
+        cache_hit.append(&mut fetched);
+
+        Ok(cache_hit)
     }
 
-    async fn save_geocache(&self, geocache: serde_json::Value) -> serde_json::Value {
-        // TODO this ignores the error!
-        let id = geocache["Code"].as_str().unwrap();
-        let insert_result = sqlx::query("INSERT INTO geocaches (id, raw, ts) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET raw = $2::JSON, ts = $3")
-            .bind(&id)
+    async fn save_geocache(&self, geocache: serde_json::Value) -> Result<Geocache, Error> {
+        let code = geocache["Code"].as_str().ok_or(Error::Geocaching)?;
+        debug!("Save {}", code);
+        sqlx::query("INSERT INTO geocaches (id, raw, ts) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET raw = $2::JSON, ts = $3")
+            .bind(&code)
             .bind(&geocache)
             .bind(Utc::now())
-            .execute(&self.db).await;
-        match &insert_result {
-            Ok(res) => println!("insert: {} {}", id, res.rows_affected()),
-            Err(e) => println!("insert err: {}", e),
-        }
-        geocache
+            .execute(&self.db).await?;
+        Ok(serde_json::from_value::<Geocache>(geocache)?)
     }
 
     async fn load_geocache(&self, code: &String, cutoff: &DateTime<Utc>) -> Option<Geocache> {
-        info!("load_geocache {}", code);
-        let json_result: Result<Option<sqlx::postgres::PgRow>, _> = sqlx::query("SELECT raw::VARCHAR FROM geocaches where id = $1 and ts >= $2")
-            .bind(code)
-            .bind(cutoff)
-            .fetch_optional(&self.db).await;
+        debug!("Load {}", code);
+        let json_result: Result<Option<sqlx::postgres::PgRow>, _> =
+            sqlx::query("SELECT raw::VARCHAR FROM geocaches where id = $1 and ts >= $2")
+                .bind(code)
+                .bind(cutoff)
+                .fetch_optional(&self.db)
+                .await;
         match json_result {
             Ok(Some(row)) => {
-                let gc: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(row.get(0));
+                let gc: Result<serde_json::Value, serde_json::Error> =
+                    serde_json::from_str(row.get(0));
                 match gc {
-                    Ok(v) => {
-                        Some(Geocache {
-                            code: String::from(v["Code"].as_str().unwrap()),
-                            name: String::from(""),
-                            terrain: 0.0,
-                            difficulty: 0.0,
-                            coord: Coordinate { lat: 0.0, lon: 0.0 },
-                            short_description: String::from(""),
-                            long_description: String::from(""),
-                            encoded_hints: String::from(""),
-                            size: geo::ContainerSize::Large,
-                            cache_type: geo::CacheType::Earth,
-                        })
-                    }
+                    Ok(v) => groundspeak::parse(&v).ok(),
                     Err(e) => {
-                        info!("json failed {}", e);
+                        error!("json failed {}", e);
                         return None;
                     }
                 }
-                // return serde_json::from_str(row.get(0)).ok();
-            },
+            }
             Ok(None) => None,
             Err(e) => {
-                info!("Failed to load geocache {}", e);
+                error!("Failed to load geocache {}", e);
                 return None;
             }
         }
-        // let json_option: Option<sqlx::postgres::PgRow> = json_result.ok().flatten();
-        // return json_option.map(|row| serde_json::from_str(row.get(0)).ok()).flatten()
     }
 
     pub async fn discover(&self, tile: &Tile) -> Result<Timestamped<GcCodes>, Error> {
@@ -155,13 +152,21 @@ impl Cache {
         info!("Discover {:#?}", tile.quadkey());
         let tile_row = sqlx::query("SELECT gccodes, ts FROM tiles where id = $1")
             .bind(tile.quadkey() as i32)
-            .fetch_optional(&self.db).await?;
+            .fetch_optional(&self.db)
+            .await?;
         match tile_row {
             Some(row) => {
                 let gccodes: Vec<String> = row.get(0);
                 let ts: DateTime<Utc> = row.get(1);
-                info!("already have a tile with {} gccodes from {}", gccodes.len(), ts);
-                return Ok(Timestamped { ts: ts, data: gccodes });
+                info!(
+                    "already have a tile with {} gccodes from {}",
+                    gccodes.len(),
+                    ts
+                );
+                return Ok(Timestamped {
+                    ts: ts,
+                    data: gccodes,
+                });
             }
             None => {
                 let codes = self.groundspeak.discover(&tile).await?;
@@ -184,6 +189,9 @@ pub struct Timestamped<T> {
 
 impl<T> Timestamped<T> {
     fn now(data: T) -> Self {
-        Self { ts: Utc::now(), data: data }
+        Self {
+            ts: Utc::now(),
+            data: data,
+        }
     }
 }

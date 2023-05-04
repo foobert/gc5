@@ -1,4 +1,4 @@
-use crate::groundspeak::Groundspeak;
+use crate::groundspeak::{Groundspeak, parse};
 use geo::{Coordinate, GcCodes, Geocache, Tile};
 
 use chrono::prelude::*;
@@ -114,7 +114,7 @@ impl Cache {
             .bind(&geocache)
             .bind(Utc::now())
             .execute(&self.db).await?;
-        Ok(serde_json::from_value::<Geocache>(geocache)?)
+        Ok(parse(&geocache)?)
     }
 
     async fn load_geocache(&self, code: &String, cutoff: &DateTime<Utc>) -> Option<Geocache> {

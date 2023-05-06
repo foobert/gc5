@@ -1,9 +1,13 @@
+use std::time::Duration;
 use geo::{CacheType, ContainerSize, Tile};
 use log::{debug, info};
+use reqwest::header::USER_AGENT;
 use serde::Deserialize;
 use serde_json::json;
+use tokio::time::sleep;
 use std::collections::HashMap;
 use thiserror::Error;
+use rand::Rng;
 
 pub const BATCH_SIZE: usize = 50;
 
@@ -12,7 +16,7 @@ const FETCH_URL: &'static str =
 
 pub struct Groundspeak {
     client: reqwest::Client,
-    base_url: String,
+    tile_index: u8,
 }
 
 pub type GcCodes = Vec<String>;
@@ -40,44 +44,52 @@ pub enum Error {
 }
 
 impl Groundspeak {
+    const USER_AGENT: &'static str = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/112.0";
+
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
-            base_url: "https://tiles01.geocaching.com".to_string(),
+            tile_index: 1,
         }
     }
 
     pub async fn discover(&self, tile: &Tile) -> Result<GcCodes, Error> {
-        info!("Discovering {:#?}", tile);
+        debug!("Discovering {}", tile);
 
+        let base_url = format!("https://tiles0{}.geocaching.com", rand::thread_rng().gen_range(1..5));
         let image_url = std::format!(
             "{}/map.png?x={}&y={}&z={}",
-            self.base_url,
+            base_url,
             tile.x,
             tile.y,
-            tile.z
+            tile.z,
         );
         let info_url = std::format!(
             "{}/map.info?x={}&y={}&z={}",
-            self.base_url,
+            base_url,
             tile.x,
             tile.y,
-            tile.z
+            tile.z,
         );
 
         self.client.get(image_url)
-            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36")
+            .header("User-Agent", USER_AGENT)
             .header("Accept", "*/*")
             .send()
             .await?;
 
         let response = self.client.get(info_url)
-            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36")
+            .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json")
             .send().await?;
 
+        sleep(Duration::from_secs(1)).await;
+
         debug!("tile response {:#?}", response);
-        info!("tile status {}", response.status().as_str());
+        if response.status() == 204 {
+            info!("Discover {} -> 0", tile);
+            return Ok(vec![]);
+        }
 
         let info = response.json::<GroundspeakTileResponse>().await?;
 
@@ -89,8 +101,7 @@ impl Groundspeak {
             .collect();
         let codes = Vec::from_iter(codes_set.into_iter());
 
-        debug!("codes: {:#?}", codes);
-        info!("Found {} codes", codes.len());
+        info!("Discover {} -> {}", tile, codes.len());
 
         Ok(codes)
     }
@@ -166,4 +177,16 @@ pub fn parse(v: &serde_json::Value) -> Result<geo::Geocache, Error> {
         size,
         cache_type,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_foo() {
+        let uut = Groundspeak::new();
+        let tile = geo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
+        uut.discover(&tile).await.unwrap();
+    }
 }

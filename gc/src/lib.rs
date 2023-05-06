@@ -1,5 +1,5 @@
 use crate::groundspeak::{Groundspeak, parse};
-use geo::{Coordinate, GcCodes, Geocache, Tile};
+use geo::{Coordinate, GcCodes, Geocache, Tile, Track};
 
 use chrono::prelude::*;
 use futures::{future::ready, stream, StreamExt};
@@ -25,6 +25,8 @@ pub enum Error {
     GroundSpeak(#[from] groundspeak::Error),
     #[error("json")]
     Json(#[from] serde_json::Error),
+    #[error("io")]
+    IO(#[from] std::io::Error),
     #[error("unknown data store error")]
     Unknown,
 }
@@ -149,9 +151,11 @@ impl Cache {
         // TODO think about switching from single row per tile to single row per gc code
         // update could be done in a transaction and we could natively work with sqlite
         // which would make operations easier
-        info!("Discover {:#?}", tile.quadkey());
-        let tile_row = sqlx::query("SELECT gccodes, ts FROM tiles where id = $1")
+        info!("Discover {}", tile);
+        let cutoff = Utc::now() - chrono::Duration::days(7);
+        let tile_row = sqlx::query("SELECT gccodes, ts FROM tiles where id = $1 and ts >= $2")
             .bind(tile.quadkey() as i32)
+            .bind(cutoff)
             .fetch_optional(&self.db)
             .await?;
         match tile_row {
@@ -179,6 +183,11 @@ impl Cache {
                 return Ok(Timestamped::now(codes));
             }
         }
+    }
+
+    pub async fn tracks<R: std::io::Read>(&self, io: R) -> Result<Vec<Tile>, Error> {
+        let track = Track::from_gpx(io)?;
+        Ok(track.tiles)
     }
 }
 

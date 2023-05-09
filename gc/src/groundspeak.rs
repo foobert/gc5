@@ -1,7 +1,6 @@
 use std::time::Duration;
 use geo::{CacheType, ContainerSize, Tile};
 use log::{debug, info};
-use reqwest::header::USER_AGENT;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
@@ -73,14 +72,14 @@ impl Groundspeak {
         );
 
         self.client.get(image_url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "*/*")
+            .header(reqwest::header::USER_AGENT, Self::USER_AGENT)
+            .header(reqwest::header::ACCEPT, "*/*")
             .send()
             .await?;
 
         let response = self.client.get(info_url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/json")
+            .header(reqwest::header::USER_AGENT, Self::USER_AGENT)
+            .header(reqwest::header::ACCEPT, "application/json")
             .send().await?;
 
         sleep(Duration::from_secs(1)).await;
@@ -114,8 +113,8 @@ impl Groundspeak {
         let response = self
             .client
             .post(FETCH_URL)
-            .header("Accept", "application/json")
-            .header("Content-Type", "application/json")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(
                 json!({
                     "AccessToken": self.access_token(),

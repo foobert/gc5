@@ -4,12 +4,13 @@ use crate::{Coordinate, Tile};
 
 pub struct Track {
     pub tiles: Vec<Tile>,
+    pub waypoints: Vec<Coordinate>,
 }
 
 impl Track {
     pub fn from_gpx<R: std::io::Read>(io: R) -> Result<Self, Error> {
         let gpx = gpx::read(io).unwrap();
-        let tiles: Vec<Tile> = gpx
+        let waypoints: Vec<Coordinate> = gpx
             .tracks
             .iter()
             .flat_map(|track| track.segments.iter())
@@ -19,13 +20,15 @@ impl Track {
                 lat: p.y(),
                 lon: p.x(),
             })
-            // .flat_map(|coord| Tile::near(&coord, 2000.0))
+            .collect();
+
+        let tiles = waypoints.iter()
             .map(|coord| Tile::from_coordinates(coord.lat, coord.lon, 14))
             .flat_map(|tile| tile.around())
             .collect::<HashSet<Tile>>()
             .into_iter()
             .collect();
 
-        Ok(Track { tiles })
+        Ok(Track { tiles, waypoints })
     }
 }

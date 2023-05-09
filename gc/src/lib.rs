@@ -74,7 +74,7 @@ impl Cache {
     pub async fn get(&self, codes: Vec<String>) -> Result<Vec<Geocache>, Error> {
         let mut cache_hit: Vec<Geocache> = vec![];
         let mut cache_miss: Vec<String> = vec![];
-        let cutoff = Utc::now() - chrono::Duration::hours(48);
+        let cutoff = Utc::now() - chrono::Duration::days(7);
         let codes_len = codes.len();
         for code in codes {
             match self.load_geocache(&code, &cutoff).await {
@@ -89,6 +89,7 @@ impl Cache {
             cache_miss.len()
         );
 
+        /*
         let mut fetched: Vec<Geocache> = stream::iter(&cache_miss)
             .chunks(groundspeak::BATCH_SIZE)
             .then(|x| self.groundspeak.fetch(x))
@@ -104,7 +105,7 @@ impl Cache {
         }
 
         cache_hit.append(&mut fetched);
-
+ */
         Ok(cache_hit)
     }
 

@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 gc = { path = "../gc" }
-geo = { path = "../geo" }
+gcgeo = { path = "../geo" }
 chrono = "0.4.24"
 env_logger = "0.10.0"
 log = "0.4.17"

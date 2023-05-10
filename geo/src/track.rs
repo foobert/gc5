@@ -1,10 +1,13 @@
 use std::{collections::HashSet, io::Error};
 
+use geo::{LineString, EuclideanDistance, ClosestPoint, GeodesicDistance};
+
 use crate::{Coordinate, Tile};
 
 pub struct Track {
     pub tiles: Vec<Tile>,
     pub waypoints: Vec<Coordinate>,
+    line_string: LineString,
 }
 
 impl Track {
@@ -29,6 +32,21 @@ impl Track {
             .into_iter()
             .collect();
 
-        Ok(Track { tiles, waypoints })
+        let line_string = LineString::from_iter(waypoints.iter()
+        .map(|coord| geo::coord! {x: coord.lon, y: coord.lat}));
+
+        Ok(Track { tiles, waypoints, line_string})
+    }
+
+    pub fn near(&self, coord: &Coordinate) -> u16 {
+        let other = geo::point! { x: coord.lon, y: coord.lat };
+        let closest = self.line_string.closest_point(&other);
+        let distance = match closest {
+            geo::Closest::SinglePoint(p) => p.geodesic_distance(&other),
+            geo::Closest::Intersection(p) => p.geodesic_distance(&other),
+            _ => f64::MAX,
+        };
+
+        distance as u16
     }
 }

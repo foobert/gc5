@@ -1,5 +1,5 @@
 use std::time::Duration;
-use geo::{CacheType, ContainerSize, Tile};
+use gcgeo::{CacheType, ContainerSize, Tile};
 use log::{debug, info};
 use serde::Deserialize;
 use serde_json::json;
@@ -143,7 +143,7 @@ impl Groundspeak {
     }
 }
 
-pub fn parse(v: &serde_json::Value) -> Result<geo::Geocache, Error> {
+pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     // this is pretty ugly, but more advanced serde scared me more
     let code = String::from(v["Code"].as_str().ok_or(Error::JsonRaw)?);
     let name = String::from(v["Name"].as_str().ok_or(Error::JsonRaw)?);
@@ -164,12 +164,12 @@ pub fn parse(v: &serde_json::Value) -> Result<geo::Geocache, Error> {
             .as_u64()
             .ok_or(Error::JsonRaw)?,
     );
-    Ok(geo::Geocache {
+    Ok(gcgeo::Geocache {
         code,
         name,
         terrain,
         difficulty,
-        coord: geo::Coordinate { lat, lon },
+        coord: gcgeo::Coordinate { lat, lon },
         short_description,
         long_description,
         encoded_hints,
@@ -185,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn test_foo() {
         let uut = Groundspeak::new();
-        let tile = geo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
+        let tile = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
         uut.discover(&tile).await.unwrap();
     }
 }

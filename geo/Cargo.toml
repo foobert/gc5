@@ -1,5 +1,5 @@
 [package]
-name = "geo"
+name = "gcgeo"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 approx = "0.5.1"
 assert_approx_eq = "1.1.0"
+geo = "0.24.1"
 gpx = "0.8.6"

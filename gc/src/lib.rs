@@ -1,5 +1,5 @@
 use crate::groundspeak::{Groundspeak, parse};
-use geo::{Coordinate, GcCodes, Geocache, Tile, Track};
+use gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
 
 use chrono::prelude::*;
 use futures::{future::ready, stream, StreamExt};

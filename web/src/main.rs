@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 use gc::{Cache, Timestamped};
-use geo::{CacheType, Geocache};
+use gcgeo::{CacheType, Geocache};
 use rocket::{data::ToByteUnit, Data, State};
 use thiserror::Error;
 use tokio::io::BufReader;
@@ -44,7 +44,7 @@ fn index() -> &'static str {
 #[get("/codes")]
 async fn codes(cache: &State<Cache>) -> String {
     // let t = geo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
-    let t = geo::Tile::from_coordinates(47.931330700422194, 8.452201111545495, 14);
+    let t = gcgeo::Tile::from_coordinates(47.931330700422194, 8.452201111545495, 14);
     match cache.discover(&t).await {
         Ok(Timestamped { data, ts: _ts }) => {
             return format!("codes: {}", data.len());
@@ -57,7 +57,7 @@ async fn codes(cache: &State<Cache>) -> String {
 
 #[get("/fetch")]
 async fn fetch(cache: &State<Cache>) -> String {
-    let t = geo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 14);
+    let t = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 14);
     match cache.find_tile(&t).await {
         Ok(Timestamped {
             data: _data,
@@ -78,7 +78,7 @@ use std::fmt::Write;
 async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
     let datastream = data.open(10.megabytes());
     let reader = datastream.into_bytes().await.unwrap();
-        let track = geo::Track::from_gpx(reader.as_slice()).unwrap();
+        let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
     let tiles = cache.tracks(reader.as_slice()).await.unwrap();
     info!("Track resolved into {} tiles", &tiles.len());
     let mut gccodes: Vec<String> = Vec::new();
@@ -88,7 +88,7 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
         gccodes.append(&mut tmp.data);
     }
     info!("Discovered {} geocaches", gccodes.len());
-    let geocaches = cache.get(gccodes).await.unwrap();
+    let geocaches: Vec<Geocache> = cache.get(gccodes).await.unwrap();
     let mut geojson = String::new();
     write!(
         &mut geojson,
@@ -111,6 +111,7 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
           "type": "LineString"
         }}
       }},"#);
+      /*
     for (i, tile) in tiles.iter().enumerate() {
         let tl = tile.top_left();
         let br = tile.bottom_right();
@@ -138,7 +139,10 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
             tl.lon, tl.lat, br.lon, tl.lat, br.lon, br.lat, tl.lon, br.lat, tl.lon, tl.lat,
         );
     }
-    for (i, geocache) in geocaches.iter().filter(|gc| is_quick_stop(gc)).enumerate() {
+        */
+    for geocache in geocaches.iter()
+    .filter(|gc| is_quick_stop(gc))
+    .filter(|gc| track.near(&gc.coord) <= 100) {
         write!(&mut geojson, ",");
         write!(&mut geojson,
         r#"{{

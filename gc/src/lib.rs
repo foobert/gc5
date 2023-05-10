@@ -89,7 +89,6 @@ impl Cache {
             cache_miss.len()
         );
 
-        /*
         let mut fetched: Vec<Geocache> = stream::iter(&cache_miss)
             .chunks(groundspeak::BATCH_SIZE)
             .then(|x| self.groundspeak.fetch(x))
@@ -105,7 +104,7 @@ impl Cache {
         }
 
         cache_hit.append(&mut fetched);
- */
+
         Ok(cache_hit)
     }
 

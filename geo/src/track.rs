@@ -1,6 +1,6 @@
 use std::{collections::HashSet, io::Error};
 
-use geo::{LineString, EuclideanDistance, ClosestPoint, GeodesicDistance};
+use geo::{LineString, ClosestPoint, GeodesicDistance};
 
 use crate::{Coordinate, Tile};
 

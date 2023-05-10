@@ -15,7 +15,6 @@ const FETCH_URL: &'static str =
 
 pub struct Groundspeak {
     client: reqwest::Client,
-    tile_index: u8,
 }
 
 pub type GcCodes = Vec<String>;
@@ -48,7 +47,6 @@ impl Groundspeak {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
-            tile_index: 1,
         }
     }
 

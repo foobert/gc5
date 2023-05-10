@@ -4,7 +4,6 @@ use gc::{Cache, Timestamped};
 use gcgeo::{CacheType, Geocache};
 use rocket::{data::ToByteUnit, Data, State};
 use thiserror::Error;
-use tokio::io::BufReader;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -93,24 +92,24 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
     write!(
         &mut geojson,
         "{{\"type\": \"FeatureCollection\", \"features\": ["
-    );
+    ).ok();
     write!(&mut geojson, r#"{{
         "type": "Feature",
         "properties": {{}},
         "geometry": {{
           "coordinates": [
-    "#);
+    "#).ok();
     for (i, waypoint) in track.waypoints.iter().enumerate() {
         if i > 0 {
-            write!(&mut geojson, ", ");
+            write!(&mut geojson, ", ").ok();
         }
-        write!(&mut geojson, "[ {}, {} ]", waypoint.lon, waypoint.lat);
+        write!(&mut geojson, "[ {}, {} ]", waypoint.lon, waypoint.lat).ok();
     }
     write!(&mut geojson, r#"
           ],
           "type": "LineString"
         }}
-      }},"#);
+      }},"#).ok();
       /*
     for (i, tile) in tiles.iter().enumerate() {
         let tl = tile.top_left();
@@ -143,7 +142,7 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
     for geocache in geocaches.iter()
     .filter(|gc| is_quick_stop(gc))
     .filter(|gc| track.near(&gc.coord) <= 100) {
-        write!(&mut geojson, ",");
+        write!(&mut geojson, ",").ok();
         write!(&mut geojson,
         r#"{{
             "type": "Feature",
@@ -160,9 +159,9 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
             _=> "#000000",
 
         },
-        geocache.coord.lon, geocache.coord.lat);
+        geocache.coord.lon, geocache.coord.lat).ok();
     }
-    write!(&mut geojson, "]}}");
+    write!(&mut geojson, "]}}").ok();
     geojson
     /*
     */

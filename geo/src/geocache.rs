@@ -8,6 +8,7 @@ pub type GcCodes = Vec<String>;
 pub struct Geocache {
     pub code: String,
     pub name: String,
+    pub is_premium: bool,
     pub terrain: f32,
     pub difficulty: f32,
     pub coord: Coordinate,
@@ -31,6 +32,24 @@ pub enum ContainerSize {
 impl fmt::Display for Geocache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.code)
+    }
+}
+
+impl Geocache {
+    pub fn premium(code: String) -> Geocache {
+        Self {
+            code,
+            name: String::new(),
+            is_premium: true,
+            terrain: 0.0,
+            difficulty: 0.0,
+            coord: Coordinate { lat: 0.0, lon: 0.0 },
+            short_description: String::new(),
+            long_description: String::new(),
+            encoded_hints: String::new(),
+            size: ContainerSize::Unknown,
+            cache_type: CacheType::Unknown,
+        }
     }
 }
 

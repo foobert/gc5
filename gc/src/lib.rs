@@ -121,28 +121,28 @@ impl Cache {
 
     async fn load_geocache(&self, code: &String, cutoff: &DateTime<Utc>) -> Option<Geocache> {
         debug!("Load {}", code);
-        let json_result: Result<Option<sqlx::postgres::PgRow>, _> =
+        match self.load_geocache_err(code, cutoff).await {
+            Ok(v) => Some(v),
+            Err(e) => {
+                error!("Unable to load geocache {}: {}", code, e);
+                None
+            }
+        }
+    }
+    async fn load_geocache_err(&self, code: &String, cutoff: &DateTime<Utc>) -> Result<Geocache, Error> {
+        let json_result: Option<sqlx::postgres::PgRow> =
             sqlx::query("SELECT raw::VARCHAR FROM geocaches where id = $1 and ts >= $2")
                 .bind(code)
                 .bind(cutoff)
                 .fetch_optional(&self.db)
-                .await;
+                .await?;
         match json_result {
-            Ok(Some(row)) => {
-                let gc: Result<serde_json::Value, serde_json::Error> =
-                    serde_json::from_str(row.get(0));
-                match gc {
-                    Ok(v) => groundspeak::parse(&v).ok(),
-                    Err(e) => {
-                        error!("json failed {}", e);
-                        return None;
-                    }
-                }
+            Some(row) => {
+                let gc: serde_json::Value = serde_json::from_str(row.get(0))?;
+                        return Ok(groundspeak::parse(&gc)?);
             }
-            Ok(None) => None,
-            Err(e) => {
-                error!("Failed to load geocache {}", e);
-                return None;
+            None => {
+                return Err(Error::Unknown);
             }
         }
     }

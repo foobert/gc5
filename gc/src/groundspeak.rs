@@ -1,12 +1,12 @@
-use std::time::Duration;
 use gcgeo::{CacheType, ContainerSize, Tile};
 use log::{debug, info};
+use rand::Rng;
 use serde::Deserialize;
 use serde_json::json;
-use tokio::time::sleep;
 use std::collections::HashMap;
+use std::time::Duration;
 use thiserror::Error;
-use rand::Rng;
+use tokio::time::sleep;
 
 pub const BATCH_SIZE: usize = 50;
 
@@ -53,7 +53,10 @@ impl Groundspeak {
     pub async fn discover(&self, tile: &Tile) -> Result<GcCodes, Error> {
         debug!("Discovering {}", tile);
 
-        let base_url = format!("https://tiles0{}.geocaching.com", rand::thread_rng().gen_range(1..5));
+        let base_url = format!(
+            "https://tiles0{}.geocaching.com",
+            rand::thread_rng().gen_range(1..5)
+        );
         let image_url = std::format!(
             "{}/map.png?x={}&y={}&z={}",
             base_url,
@@ -69,16 +72,20 @@ impl Groundspeak {
             tile.z,
         );
 
-        self.client.get(image_url)
+        self.client
+            .get(image_url)
             .header(reqwest::header::USER_AGENT, Self::USER_AGENT)
             .header(reqwest::header::ACCEPT, "*/*")
             .send()
             .await?;
 
-        let response = self.client.get(info_url)
+        let response = self
+            .client
+            .get(info_url)
             .header(reqwest::header::USER_AGENT, Self::USER_AGENT)
             .header(reqwest::header::ACCEPT, "application/json")
-            .send().await?;
+            .send()
+            .await?;
 
         sleep(Duration::from_secs(1)).await;
 
@@ -130,10 +137,33 @@ impl Groundspeak {
             .await?;
         debug!("fetch status {}", response.status().as_str());
         let json: serde_json::Value = serde_json::from_slice(&response.bytes().await?)?;
-        match json["Geocaches"].as_array() {
-            Some(geocaches) => Ok(geocaches.clone()),
-            None => Err(Error::Unknown),
+
+        sleep(Duration::from_secs(1)).await;
+
+        let mut geocaches = json["Geocaches"].as_array().ok_or(Error::JsonRaw)?.clone();
+        for (i, code) in codes.iter().enumerate() {
+            if let Some(geocache) = geocaches.get(i) {
+                if let Some(gc) = geocache["Code"].as_str() {
+                    if code != &gc {
+                        debug!("{} is premium", code);
+                        geocaches.insert(i, Self::hacky_premium_geocache(code));
+                    }
+                }
+            }
         }
+
+        Ok(geocaches)
+        // match json["Geocaches"].as_array() {
+        // Some(geocaches) => Ok(geocaches.clone()),
+        // None => Err(Error::Unknown),
+        // }
+    }
+
+    fn hacky_premium_geocache(code: &str) -> serde_json::Value {
+        json!({
+            "Code": code,
+            "IsPremium": true,
+        })
     }
 
     fn access_token(&self) -> String {
@@ -144,12 +174,19 @@ impl Groundspeak {
 pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     // this is pretty ugly, but more advanced serde scared me more
     let code = String::from(v["Code"].as_str().ok_or(Error::JsonRaw)?);
+    let is_premium = v["IsPremium"].as_bool().unwrap_or(false);
+
+    if is_premium {
+        return Ok(gcgeo::Geocache::premium(code));
+    }
+
     let name = String::from(v["Name"].as_str().ok_or(Error::JsonRaw)?);
     let terrain = v["Terrain"].as_f64().ok_or(Error::JsonRaw)? as f32;
     let difficulty = v["Difficulty"].as_f64().ok_or(Error::JsonRaw)? as f32;
     let lat = v["Latitude"].as_f64().ok_or(Error::JsonRaw)?;
     let lon = v["Longitude"].as_f64().ok_or(Error::JsonRaw)?;
-    let short_description = String::from(v["ShortDescription"].as_str().ok_or(Error::JsonRaw)?);
+    let short_description = String::from(v["ShortDescription"].as_str().unwrap_or_default());
+    // let short_description = String::from(v["ShortDescription"].as_str().ok_or(Error::JsonRaw)?);
     let long_description = String::from(v["LongDescription"].as_str().ok_or(Error::JsonRaw)?);
     let encoded_hints = String::from(v["EncodedHints"].as_str().ok_or(Error::JsonRaw)?);
     let size = ContainerSize::from(
@@ -165,6 +202,7 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     Ok(gcgeo::Geocache {
         code,
         name,
+        is_premium,
         terrain,
         difficulty,
         coord: gcgeo::Coordinate { lat, lon },

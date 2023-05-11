@@ -54,21 +54,11 @@ async fn codes(cache: &State<Cache>) -> String {
     }
 }
 
-#[get("/fetch")]
-async fn fetch(cache: &State<Cache>) -> String {
-    let t = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 14);
-    match cache.find_tile(&t).await {
-        Ok(Timestamped {
-            data: _data,
-            ts: _ts,
-        }) => {
-            return "ok".to_string();
-        }
-        Err(err) => {
-            info!("err: {:#?}", err);
-            return err.to_string();
-        }
-    }
+#[get("/get/<code>")]
+async fn fetch(code: String, cache: &State<Cache>) -> String {
+    let geocaches = cache.get(vec![ code ]).await.ok().unwrap();
+    let geocache = geocaches.get(0).unwrap();
+    format!("{}", geocache)
 }
 
 use std::fmt::Write;
@@ -140,6 +130,7 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
     }
         */
     for geocache in geocaches.iter()
+    .filter(|gc| !gc.is_premium)
     .filter(|gc| is_quick_stop(gc))
     .filter(|gc| track.near(&gc.coord) <= 100) {
         write!(&mut geojson, ",").ok();

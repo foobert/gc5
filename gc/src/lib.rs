@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::groundspeak::{Groundspeak, parse};
 use gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
 
@@ -9,10 +11,13 @@ use sqlx::Row;
 use thiserror::Error;
 
 pub mod groundspeak;
+pub mod job;
+pub mod garmin;
 
 pub struct Cache {
     db: sqlx::PgPool,
     groundspeak: Groundspeak,
+    jobs: HashMap<String, job::Job>,
 }
 
 #[derive(Error, Debug)]
@@ -27,16 +32,21 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("io")]
     IO(#[from] std::io::Error),
+    #[error("gpx")]
+    Gpx(#[from] gpx::errors::GpxError),
+    #[error("utf8")]
+    Utf8(#[from] std::str::Utf8Error),
     #[error("unknown data store error")]
     Unknown,
 }
 
 impl Cache {
     pub fn new(pool: sqlx::PgPool) -> Self {
-        let gs = Groundspeak::new();
+        let groundspeak = Groundspeak::new();
         return Self {
             db: pool,
-            groundspeak: gs,
+            groundspeak,
+            jobs: HashMap::new(),
         };
     }
 
@@ -45,12 +55,16 @@ impl Cache {
             .max_connections(5)
             .connect("postgres://localhost/gc")
             .await?;
-        let gs = Groundspeak::new();
-        Ok(Self {
-            db: pool,
-            groundspeak: gs,
-        })
+        Ok(Self::new(pool))
     }
+
+    /*
+    pub fn compute(foo: Arc<Mutex<Self>>, tiles: Vec<Tile>) -> Result<(), Error> {
+        let job = job::Job::new(foo.clone(), tiles);
+        foo.lock().unwrap().jobs.insert(job.id.clone(), job);
+        Ok(())
+    }
+    */
 
     pub async fn find_tile(&self, tile: &Tile) -> Result<Timestamped<Vec<Geocache>>, Error> {
         let result: Vec<Geocache> = vec![];
@@ -88,6 +102,7 @@ impl Cache {
             cache_hit.len(),
             cache_miss.len()
         );
+        info!("missing: {:?}", cache_miss);
 
         let mut fetched: Vec<Geocache> = stream::iter(&cache_miss)
             .chunks(groundspeak::BATCH_SIZE)
@@ -100,6 +115,7 @@ impl Cache {
             .await;
 
         if fetched.len() < cache_miss.len() {
+            error!("Got back less than the expected number of geocaches {} < {}", fetched.len(), cache_miss.len());
             return Err(Error::Geocaching);
         }
 
@@ -122,14 +138,14 @@ impl Cache {
     async fn load_geocache(&self, code: &String, cutoff: &DateTime<Utc>) -> Option<Geocache> {
         debug!("Load {}", code);
         match self.load_geocache_err(code, cutoff).await {
-            Ok(v) => Some(v),
+            Ok(v) => v,
             Err(e) => {
                 error!("Unable to load geocache {}: {}", code, e);
                 None
             }
         }
     }
-    async fn load_geocache_err(&self, code: &String, cutoff: &DateTime<Utc>) -> Result<Geocache, Error> {
+    async fn load_geocache_err(&self, code: &String, cutoff: &DateTime<Utc>) -> Result<Option<Geocache>, Error> {
         let json_result: Option<sqlx::postgres::PgRow> =
             sqlx::query("SELECT raw::VARCHAR FROM geocaches where id = $1 and ts >= $2")
                 .bind(code)
@@ -139,10 +155,10 @@ impl Cache {
         match json_result {
             Some(row) => {
                 let gc: serde_json::Value = serde_json::from_str(row.get(0))?;
-                        return Ok(groundspeak::parse(&gc)?);
+                        return Ok(Some(groundspeak::parse(&gc)?));
             }
             None => {
-                return Err(Error::Unknown);
+                return Ok(None);
             }
         }
     }
@@ -151,7 +167,7 @@ impl Cache {
         // TODO think about switching from single row per tile to single row per gc code
         // update could be done in a transaction and we could natively work with sqlite
         // which would make operations easier
-        info!("Discover {}", tile);
+        debug!("Discover {}", tile);
         let cutoff = Utc::now() - chrono::Duration::days(7);
         let tile_row = sqlx::query("SELECT gccodes, ts FROM tiles where id = $1 and ts >= $2")
             .bind(tile.quadkey() as i32)
@@ -162,7 +178,7 @@ impl Cache {
             Some(row) => {
                 let gccodes: Vec<String> = row.get(0);
                 let ts: DateTime<Utc> = row.get(1);
-                info!(
+                debug!(
                     "already have a tile with {} gccodes from {}",
                     gccodes.len(),
                     ts
@@ -200,7 +216,7 @@ impl<T> Timestamped<T> {
     fn now(data: T) -> Self {
         Self {
             ts: Utc::now(),
-            data: data,
+            data,
         }
     }
 }

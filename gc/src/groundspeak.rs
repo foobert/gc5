@@ -141,6 +141,12 @@ impl Groundspeak {
         sleep(Duration::from_secs(1)).await;
 
         let mut geocaches = json["Geocaches"].as_array().ok_or(Error::JsonRaw)?.clone();
+
+        if geocaches.len() == 0 {
+            // all premium
+            return Ok(codes.iter().map(|code| Self::hacky_premium_geocache(code)).collect());
+        }
+
         for (i, code) in codes.iter().enumerate() {
             if let Some(geocache) = geocaches.get(i) {
                 if let Some(gc) = geocache["Code"].as_str() {
@@ -153,10 +159,6 @@ impl Groundspeak {
         }
 
         Ok(geocaches)
-        // match json["Geocaches"].as_array() {
-        // Some(geocaches) => Ok(geocaches.clone()),
-        // None => Err(Error::Unknown),
-        // }
     }
 
     fn hacky_premium_geocache(code: &str) -> serde_json::Value {
@@ -199,6 +201,8 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
             .as_u64()
             .ok_or(Error::JsonRaw)?,
     );
+    let available = v["Available"].as_bool().ok_or(Error::JsonRaw)?;
+    let archived = v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
     Ok(gcgeo::Geocache {
         code,
         name,
@@ -211,6 +215,8 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
         encoded_hints,
         size,
         cache_type,
+        archived,
+        available
     })
 }
 

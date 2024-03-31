@@ -17,9 +17,11 @@ pub struct Geocache {
     pub encoded_hints: String,
     pub size: ContainerSize,
     pub cache_type: CacheType,
+    pub archived: bool,
+    pub available: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ContainerSize {
     Nano,
     Micro,
@@ -28,6 +30,19 @@ pub enum ContainerSize {
     Large,
     Unknown,
 }
+
+impl fmt::Display for ContainerSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl fmt::Display for CacheType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 
 impl fmt::Display for Geocache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -41,6 +56,8 @@ impl Geocache {
             code,
             name: String::new(),
             is_premium: true,
+            available: false,
+            archived: false,
             terrain: 0.0,
             difficulty: 0.0,
             coord: Coordinate { lat: 0.0, lon: 0.0 },
@@ -62,7 +79,7 @@ impl ContainerSize {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CacheType {
     Traditional,
     Multi,

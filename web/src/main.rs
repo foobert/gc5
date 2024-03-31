@@ -25,9 +25,11 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     let cache = Cache::new_lite().await?;
+    let jobs = HashMap::<String, String>::new();
 
     let _rocket = rocket::build()
         .manage(cache)
+        .manage(jobs)
         .mount("/", routes![index, codes, fetch, track])
         .launch()
         .await?;
@@ -56,18 +58,25 @@ async fn codes(cache: &State<Cache>) -> String {
 
 #[get("/get/<code>")]
 async fn fetch(code: String, cache: &State<Cache>) -> String {
-    let geocaches = cache.get(vec![ code ]).await.ok().unwrap();
+    let geocaches = cache.get(vec![code]).await.ok().unwrap();
     let geocache = geocaches.get(0).unwrap();
     format!("{}", geocache)
 }
 
-use std::fmt::Write;
+use std::{
+    collections::HashMap,
+    fmt::Write,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 #[post("/track", data = "<data>")]
-async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
+async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cache>) -> Vec<u8> {
+    info!("accept: {}", accept);
     let datastream = data.open(10.megabytes());
     let reader = datastream.into_bytes().await.unwrap();
-        let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
+    let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
     let tiles = cache.tracks(reader.as_slice()).await.unwrap();
     info!("Track resolved into {} tiles", &tiles.len());
     let mut gccodes: Vec<String> = Vec::new();
@@ -77,65 +86,69 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
         gccodes.append(&mut tmp.data);
     }
     info!("Discovered {} geocaches", gccodes.len());
-    let geocaches: Vec<Geocache> = cache.get(gccodes).await.unwrap();
-    let mut geojson = String::new();
-    write!(
-        &mut geojson,
-        "{{\"type\": \"FeatureCollection\", \"features\": ["
-    ).ok();
-    write!(&mut geojson, r#"{{
+    let all_geocaches: Vec<Geocache> = cache.get(gccodes).await.unwrap();
+    let geocaches: Vec<Geocache> = all_geocaches
+        .into_iter()
+        .filter(|gc| is_active(&gc))
+        .filter(|gc| is_quick_stop(gc))
+        .filter(|gc| track.near(&gc.coord) <= 100)
+        .collect();
+
+    info!("accept: {}", accept.preferred().sub());
+    match accept.preferred().sub().as_str() {
+        "gpx" => {
+            let mut output: Vec<u8> = Vec::new();
+            let garmin = gc::garmin::Garmin::new(geocaches);
+            garmin
+                .gpx(&CacheType::Traditional, &mut output)
+                .expect("gpx writing failed");
+            output
+        }
+        "gpi" => {
+            let mut output: Vec<u8> = Vec::new();
+            let garmin = gc::garmin::Garmin::new(geocaches);
+            garmin
+                .gpi(&CacheType::Traditional, &mut output)
+                .expect("gpi writing failed");
+            output
+        }
+        _ => {
+            let mut geojson = String::new();
+            write!(
+                &mut geojson,
+                "{{\"type\": \"FeatureCollection\", \"features\": ["
+            )
+            .ok();
+            write!(
+                &mut geojson,
+                r#"{{
         "type": "Feature",
         "properties": {{}},
         "geometry": {{
           "coordinates": [
-    "#).ok();
-    for (i, waypoint) in track.waypoints.iter().enumerate() {
-        if i > 0 {
-            write!(&mut geojson, ", ").ok();
-        }
-        write!(&mut geojson, "[ {}, {} ]", waypoint.lon, waypoint.lat).ok();
-    }
-    write!(&mut geojson, r#"
+    "#
+            )
+            .ok();
+            for (i, waypoint) in track.waypoints.iter().enumerate() {
+                if i > 0 {
+                    write!(&mut geojson, ", ").ok();
+                }
+                write!(&mut geojson, "[ {}, {} ]", waypoint.lon, waypoint.lat).ok();
+            }
+            write!(
+                &mut geojson,
+                r#"
           ],
           "type": "LineString"
         }}
-      }},"#).ok();
-      /*
-    for (i, tile) in tiles.iter().enumerate() {
-        let tl = tile.top_left();
-        let br = tile.bottom_right();
-        if i > 0 {
-            write!(&mut geojson, ",");
-        }
-        write!(
-            &mut geojson,
-            r#"{{
-            "type": "Feature",
-            "properties": {{}},
-            "geometry": {{
-              "coordinates": [
-                [
-                  [ {}, {} ],
-                  [ {}, {} ],
-                  [ {}, {} ],
-                  [ {}, {} ],
-                  [ {}, {} ]
-                ]
-              ],
-              "type": "Polygon"
-            }}
-        }}"#,
-            tl.lon, tl.lat, br.lon, tl.lat, br.lon, br.lat, tl.lon, br.lat, tl.lon, tl.lat,
-        );
-    }
-        */
-    for geocache in geocaches.iter()
-    .filter(|gc| !gc.is_premium)
-    .filter(|gc| is_quick_stop(gc))
-    .filter(|gc| track.near(&gc.coord) <= 100) {
-        write!(&mut geojson, ",").ok();
-        write!(&mut geojson,
-        r#"{{
+      }},"#
+            )
+            .ok();
+            for geocache in geocaches {
+                write!(&mut geojson, ",").ok();
+                write!(
+                    &mut geojson,
+                    r#"{{
             "type": "Feature",
             "properties": {{"name":"{}", "marker-color":"{}"}},
             "geometry": {{
@@ -143,25 +156,32 @@ async fn track(data: Data<'_>, cache: &State<Cache>) -> String {
                 "type": "Point"
             }}
         }}
-        "#, geocache.code,
-        match geocache.cache_type {
-            CacheType::Webcam => "#ff0000",
-            CacheType::Earth => "#00ff00",
-            _=> "#000000",
-
-        },
-        geocache.coord.lon, geocache.coord.lat).ok();
+        "#,
+                    geocache.code,
+                    match geocache.cache_type {
+                        CacheType::Webcam => "#ff0000",
+                        CacheType::Earth => "#00ff00",
+                        _ => "#000000",
+                    },
+                    geocache.coord.lon,
+                    geocache.coord.lat
+                )
+                .ok();
+            }
+            write!(&mut geojson, "]}}").ok();
+            Vec::from(geojson.as_bytes())
+        }
     }
-    write!(&mut geojson, "]}}").ok();
-    geojson
-    /*
-    */
-    //"Ok".to_string()
+}
+
+fn is_active(gc: &Geocache) -> bool {
+    !gc.is_premium && gc.available && !gc.archived
 }
 
 fn is_quick_stop(gc: &Geocache) -> bool {
     match gc.cache_type {
-        CacheType::Traditional | CacheType::Earth | CacheType::Webcam => true,
+        // CacheType::Traditional | CacheType::Earth | CacheType::Webcam => true,
+        CacheType::Traditional => true,
         _ => false,
     }
 }

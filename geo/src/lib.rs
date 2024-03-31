@@ -1,9 +1,10 @@
 // is this idiomatic?
-mod tile;
 mod coordinate;
 mod geocache;
+mod tile;
 mod track;
-pub use tile::*;
+
 pub use coordinate::*;
 pub use geocache::*;
+pub use tile::*;
 pub use track::*;

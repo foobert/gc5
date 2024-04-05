@@ -1,7 +1,6 @@
-use std::{rc::Rc, sync::{Arc, Mutex}};
-
-use gcgeo::{Tile, Geocache};
 use log::debug;
+
+use gcgeo::{Geocache, Tile};
 
 use crate::Cache;
 
@@ -19,7 +18,7 @@ impl Job {
             geocaches: vec![],
         }
     }
-    pub async fn process(mut job: &mut Job, cache: &Cache) {
+    pub async fn process(job: &mut Job, cache: &mut Cache) {
         let mut codes: Vec<String> = Vec::new();
         for tile in job.tiles.iter() {
             debug!("Discover tile {}", tile);

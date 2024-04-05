@@ -1,22 +1,25 @@
 use std::collections::HashMap;
 
-use crate::groundspeak::{Groundspeak, parse};
-use gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
-
 use chrono::prelude::*;
-use futures::{future::ready, stream, StreamExt};
-use log::{debug, info, error};
+use log::{debug, error, info};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use thiserror::Error;
 
+use gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
+
+use crate::groundspeak::{Groundspeak, parse};
+use crate::tokencache::TokenCache;
+
 pub mod groundspeak;
 pub mod job;
 pub mod garmin;
+mod tokencache;
 
 pub struct Cache {
     db: sqlx::PgPool,
     groundspeak: Groundspeak,
+    token_cache: TokenCache,
     jobs: HashMap<String, job::Job>,
 }
 
@@ -28,6 +31,8 @@ pub enum Error {
     Database(#[from] sqlx::Error),
     #[error("groundspeak")]
     GroundSpeak(#[from] groundspeak::Error),
+    #[error("reqwest")]
+    Reqwest(#[from] reqwest::Error),
     #[error("json")]
     Json(#[from] serde_json::Error),
     #[error("io")]
@@ -43,9 +48,11 @@ pub enum Error {
 impl Cache {
     pub fn new(pool: sqlx::PgPool) -> Self {
         let groundspeak = Groundspeak::new();
+        let token_cache = TokenCache::new(pool.clone());
         return Self {
             db: pool,
             groundspeak,
+            token_cache,
             jobs: HashMap::new(),
         };
     }
@@ -55,7 +62,9 @@ impl Cache {
             .max_connections(5)
             .connect("postgres://localhost/gc")
             .await?;
-        Ok(Self::new(pool))
+        let s = Self::new(pool);
+        s.token_cache.init_db().await?;
+        Ok(s)
     }
 
     /*
@@ -66,7 +75,7 @@ impl Cache {
     }
     */
 
-    pub async fn find_tile(&self, tile: &Tile) -> Result<Timestamped<Vec<Geocache>>, Error> {
+    pub async fn find_tile(&mut self, tile: &Tile) -> Result<Timestamped<Vec<Geocache>>, Error> {
         let result: Vec<Geocache> = vec![];
         let codes = self.discover(tile).await?;
         self.get(codes.data).await?;
@@ -104,28 +113,66 @@ impl Cache {
         );
         info!("missing: {:?}", cache_miss);
 
-        let mut fetched: Vec<Geocache> = stream::iter(&cache_miss)
-            .chunks(groundspeak::BATCH_SIZE)
-            .then(|x| self.groundspeak.fetch(x))
-            .filter_map(|x| ready(x.ok()))
-            .flat_map(stream::iter)
-            .then(|x| self.save_geocache(x))
-            .filter_map(|x| ready(x.ok()))
-            .collect()
-            .await;
+        if !cache_miss.is_empty() {
+            info!("Fetching {} geocaches from Groundspeak", cache_miss.len());
+            let chunk_size = 50;
+            let mut fetched = Vec::new();
+            for chunk in cache_miss.chunks(chunk_size) {
+                let chunk: Vec<&String> = chunk.into_iter().collect();
+                fetched.extend(self.fetch_chunk(chunk).await?);
+            }
 
-        if fetched.len() < cache_miss.len() {
-            error!("Got back less than the expected number of geocaches {} < {}", fetched.len(), cache_miss.len());
-            return Err(Error::Geocaching);
+            /*
+            let mut fetched: Vec<Geocache> = stream::iter(&cache_miss)
+                .chunks(groundspeak::BATCH_SIZE)
+                .then(|x| self.groundspeak.fetch(token, x))
+                .filter_map(|x| ready(x.ok()))
+                .flat_map(stream::iter)
+                .then(|x| self.save_geocache(x))
+                .filter_map(|x| ready(x.ok()))
+                .collect()
+                .await;
+
+             */
+
+            if fetched.len() < cache_miss.len() {
+                error!("Got back less than the expected number of geocaches {} < {}", fetched.len(), cache_miss.len());
+                return Err(Error::Geocaching);
+            }
+            cache_hit.append(&mut fetched);
         }
-
-        cache_hit.append(&mut fetched);
 
         Ok(cache_hit)
     }
 
+    async fn fetch_chunk(&self, codes: Vec<&String>) -> Result<Vec<Geocache>, Error> {
+        info!("Fetching {} geocaches from Groundspeak", codes.len());
+        let mut attempts = 0;
+        while attempts < 2 {
+            let token = self.token_cache.token().await;
+            let fetched = self.groundspeak.fetch(&token, codes.clone()).await;
+            match fetched {
+                Ok(fetched) => {
+                    info!("Fetched {} geocaches from Groundspeak", fetched.len());
+                    let mut result = Vec::new();
+                    for geocache in fetched {
+                        result.push(self.save_geocache(geocache).await?);
+                    }
+                    return Ok(result);
+                }
+                Err(e) => {
+                    error!("Unable to fetch geocaches from Groundspeak, refreshing token {:?}", e);
+                    // self.token_cache.write().unwrap().refresh().await?;
+                    attempts += 2;
+                }
+            }
+        }
+        Err(Error::Geocaching)
+    }
+
+
     async fn save_geocache(&self, geocache: serde_json::Value) -> Result<Geocache, Error> {
-        let code = geocache["Code"].as_str().ok_or(Error::Geocaching)?;
+        let code = geocache["referenceCode"].as_str().ok_or(Error::Geocaching)?;
         debug!("Save {}", code);
         sqlx::query("INSERT INTO geocaches (id, raw, ts) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET raw = $2::JSON, ts = $3")
             .bind(&code)
@@ -155,7 +202,7 @@ impl Cache {
         match json_result {
             Some(row) => {
                 let gc: serde_json::Value = serde_json::from_str(row.get(0))?;
-                        return Ok(Some(groundspeak::parse(&gc)?));
+                return Ok(Some(groundspeak::parse(&gc)?));
             }
             None => {
                 return Ok(None);

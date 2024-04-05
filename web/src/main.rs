@@ -1,9 +1,16 @@
 #[macro_use]
 extern crate rocket;
+
+use std::{
+    collections::HashMap,
+    fmt::Write,
+};
+
+use rocket::{Data, data::ToByteUnit, State};
+use thiserror::Error;
+
 use gc::{Cache, Timestamped};
 use gcgeo::{CacheType, Geocache};
-use rocket::{data::ToByteUnit, Data, State};
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -21,12 +28,12 @@ pub enum Error {
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
-    println!("FOO");
     env_logger::init();
 
     let cache = Cache::new_lite().await?;
     let jobs = HashMap::<String, String>::new();
 
+    info!("Service starting up...");
     let _rocket = rocket::build()
         .manage(cache)
         .manage(jobs)
@@ -63,13 +70,6 @@ async fn fetch(code: String, cache: &State<Cache>) -> String {
     format!("{}", geocache)
 }
 
-use std::{
-    collections::HashMap,
-    fmt::Write,
-    rc::Rc,
-    sync::{Arc, Mutex},
-    thread,
-};
 
 #[post("/track", data = "<data>")]
 async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cache>) -> Vec<u8> {
@@ -118,7 +118,7 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cach
                 &mut geojson,
                 "{{\"type\": \"FeatureCollection\", \"features\": ["
             )
-            .ok();
+                .ok();
             write!(
                 &mut geojson,
                 r#"{{
@@ -128,7 +128,7 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cach
           "coordinates": [
     "#
             )
-            .ok();
+                .ok();
             for (i, waypoint) in track.waypoints.iter().enumerate() {
                 if i > 0 {
                     write!(&mut geojson, ", ").ok();
@@ -143,7 +143,7 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cach
         }}
       }},"#
             )
-            .ok();
+                .ok();
             for geocache in geocaches {
                 write!(&mut geojson, ",").ok();
                 write!(
@@ -166,7 +166,7 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cach
                     geocache.coord.lon,
                     geocache.coord.lat
                 )
-                .ok();
+                    .ok();
             }
             write!(&mut geojson, "]}}").ok();
             Vec::from(geojson.as_bytes())

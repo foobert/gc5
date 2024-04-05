@@ -1,10 +1,12 @@
-use gcgeo::Geocache;
+use std::{io::Write, path::Path, process::Command};
+
 use geo::Point;
 use gpx::{GpxVersion, Waypoint};
 use log::{error, info};
 use regex::Regex;
-use std::{io::Write, process::Command, path::Path};
-use tempfile::{tempfile, NamedTempFile};
+use tempfile::NamedTempFile;
+
+use gcgeo::Geocache;
 
 use crate::Error;
 
@@ -38,8 +40,8 @@ impl Garmin {
     }
 
     pub fn gpi<W: ?Sized>(&self, cache_type: &gcgeo::CacheType, writer: &mut W) -> Result<(), Error>
-    where
-        W: Write,
+        where
+            W: Write,
     {
         let mut gpx_file = NamedTempFile::new()?;
         let mut gpi_file = NamedTempFile::new()?;
@@ -80,7 +82,7 @@ impl Garmin {
         Ok(())
     }
 
-    pub fn gpi_zip<W: Write>(&self, writer: W) -> Result<(), Error> {
+    pub fn gpi_zip<W: Write>(&self, _: W) -> Result<(), Error> {
         Err(Error::Unknown)
     }
 

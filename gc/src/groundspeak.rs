@@ -1,17 +1,15 @@
-use gcgeo::{CacheType, ContainerSize, Tile};
+use std::collections::HashMap;
+use std::time::Duration;
+
 use log::{debug, info};
 use rand::Rng;
 use serde::Deserialize;
-use serde_json::json;
-use std::collections::HashMap;
-use std::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
 
-pub const BATCH_SIZE: usize = 50;
+use gcgeo::{CacheType, ContainerSize, Tile};
 
-const FETCH_URL: &'static str =
-    "https://api.groundspeak.com/LiveV6/Geocaching.svc/internal/SearchForGeocaches?format=json";
+pub const BATCH_SIZE: usize = 50;
 
 pub struct Groundspeak {
     client: reqwest::Client,
@@ -42,7 +40,13 @@ pub enum Error {
 }
 
 impl Groundspeak {
+    const FETCH_URL: &'static str = "https://api.groundspeak.com/v1.0/geocaches";
+
     const USER_AGENT: &'static str = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/112.0";
+
+    const USER_AGENT_FETCH: &'static str = "L4C Pro/4.3.2 (iPhone; iOS 17.3.1; Scale/3.00)";
+
+    const FETCH_FIELDS: &'static str = "referenceCode,ianaTimezoneId,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,userData,favoritePoints,placedDate,eventEndDate,ownerAlias,owner,isPremiumOnly,userData,lastVisitedDate,status,hasSolutionChecker";
 
     pub fn new() -> Self {
         Self {
@@ -110,99 +114,74 @@ impl Groundspeak {
         Ok(codes)
     }
 
-    pub async fn fetch(&self, codes: Vec<&String>) -> Result<Vec<serde_json::Value>, Error> {
+    pub async fn fetch(&self, token: &str, codes: Vec<&String>) -> Result<Vec<serde_json::Value>, Error> {
         if codes.len() > BATCH_SIZE {
             return Err(Error::Unknown);
         }
         info!("fetch chunk {}", codes.len());
+        let codes_str: Vec<&str> = codes.iter().map(|x| x.as_str()).collect();
+        let comma_separated_codes = codes_str.join(",");
         let response = self
             .client
-            .post(FETCH_URL)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(
-                json!({
-                    "AccessToken": self.access_token(),
-                    "GeocacheLogCount": 5,
-                    "IsLite": false,
-                    "MaxPerPage": BATCH_SIZE,
-                    "TrackableLogCount": 0,
-                    "CacheCode": {
-                        "CacheCodes": codes,
-                    }
-                })
-                .to_string(),
-            )
+            .get(Groundspeak::FETCH_URL)
+            .header(reqwest::header::ACCEPT, "*/*")
+            .header(reqwest::header::ACCEPT_LANGUAGE, "en-US;q=1")
+            .header(reqwest::header::USER_AGENT, Groundspeak::USER_AGENT_FETCH)
+            .bearer_auth(token)
+            .query(&[("referenceCodes", comma_separated_codes), ("lite", "true".to_string()), ("fields", Groundspeak::FETCH_FIELDS.to_string())])
             .send()
             .await?;
         debug!("fetch status {}", response.status().as_str());
         let json: serde_json::Value = serde_json::from_slice(&response.bytes().await?)?;
+        debug!("fetch json {:#?}", json);
 
         sleep(Duration::from_secs(1)).await;
 
-        let mut geocaches = json["Geocaches"].as_array().ok_or(Error::JsonRaw)?.clone();
+        let geocaches = json.as_array().ok_or(Error::JsonRaw)?.clone();
+        debug!("fetch geocaches {}", geocaches.len());
 
-        if geocaches.len() == 0 {
-            // all premium
-            return Ok(codes.iter().map(|code| Self::hacky_premium_geocache(code)).collect());
-        }
-
-        for (i, code) in codes.iter().enumerate() {
-            if let Some(geocache) = geocaches.get(i) {
-                if let Some(gc) = geocache["Code"].as_str() {
-                    if code != &gc {
-                        debug!("{} is premium", code);
-                        geocaches.insert(i, Self::hacky_premium_geocache(code));
-                    }
-                }
-            }
+        if geocaches.len() != codes.len() {
+            return Err(Error::JsonRaw);
         }
 
         Ok(geocaches)
-    }
-
-    fn hacky_premium_geocache(code: &str) -> serde_json::Value {
-        json!({
-            "Code": code,
-            "IsPremium": true,
-        })
-    }
-
-    fn access_token(&self) -> String {
-        "2c144c16-b33d-48bc-845b-cbd969681c4c".to_string()
     }
 }
 
 pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     // this is pretty ugly, but more advanced serde scared me more
-    let code = String::from(v["Code"].as_str().ok_or(Error::JsonRaw)?);
-    let is_premium = v["IsPremium"].as_bool().unwrap_or(false);
+    let code = String::from(v["referenceCode"].as_str().ok_or(Error::JsonRaw)?);
+    let is_premium = v["isPremiumOnly"].as_bool().unwrap_or(false);
 
     if is_premium {
         return Ok(gcgeo::Geocache::premium(code));
     }
 
-    let name = String::from(v["Name"].as_str().ok_or(Error::JsonRaw)?);
-    let terrain = v["Terrain"].as_f64().ok_or(Error::JsonRaw)? as f32;
-    let difficulty = v["Difficulty"].as_f64().ok_or(Error::JsonRaw)? as f32;
-    let lat = v["Latitude"].as_f64().ok_or(Error::JsonRaw)?;
-    let lon = v["Longitude"].as_f64().ok_or(Error::JsonRaw)?;
-    let short_description = String::from(v["ShortDescription"].as_str().unwrap_or_default());
+    let name = String::from(v["name"].as_str().ok_or(Error::JsonRaw)?);
+    let terrain = v["terrain"].as_f64().ok_or(Error::JsonRaw)? as f32;
+    let difficulty = v["difficulty"].as_f64().ok_or(Error::JsonRaw)? as f32;
+    let lat = v["postedCoordinates"]["latitude"].as_f64().ok_or(Error::JsonRaw)?;
+    let lon = v["postedCoordinates"]["longitude"].as_f64().ok_or(Error::JsonRaw)?;
+    // TODO short description?
+    let short_description = String::from(v["name"].as_str().unwrap_or_default());
     // let short_description = String::from(v["ShortDescription"].as_str().ok_or(Error::JsonRaw)?);
-    let long_description = String::from(v["LongDescription"].as_str().ok_or(Error::JsonRaw)?);
-    let encoded_hints = String::from(v["EncodedHints"].as_str().ok_or(Error::JsonRaw)?);
+    // TODO long description?
+    let long_description = String::from(v["name"].as_str().ok_or(Error::JsonRaw)?);
+    // TODO hints?
+    let encoded_hints = String::new(); // String::from(v["EncodedHints"].as_str().ok_or(Error::JsonRaw)?);
     let size = ContainerSize::from(
-        v["ContainerType"]["ContainerTypeId"]
+        v["geocacheSize"]["id"]
             .as_u64()
             .ok_or(Error::JsonRaw)?,
     );
     let cache_type = CacheType::from(
-        v["CacheType"]["GeocacheTypeId"]
+        v["geocacheType"]["id"]
             .as_u64()
             .ok_or(Error::JsonRaw)?,
     );
-    let available = v["Available"].as_bool().ok_or(Error::JsonRaw)?;
-    let archived = v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
+    let available = v["status"].as_str().ok_or(Error::JsonRaw)? == "Active";
+    // TODO archived?
+    let archived = false; //v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
     Ok(gcgeo::Geocache {
         code,
         name,
@@ -216,7 +195,7 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
         size,
         cache_type,
         archived,
-        available
+        available,
     })
 }
 

@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
+use chrono_tz::Tz;
 use log::{debug, info};
 use rand::Rng;
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::time::sleep;
 
-use gcgeo::{CacheType, ContainerSize, Tile};
+use gcgeo::{CacheType, ContainerSize, LogType, Tile};
 
 pub const BATCH_SIZE: usize = 50;
 
@@ -35,6 +37,10 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("json_raw")]
     JsonRaw,
+    #[error("chrono")]
+    Chrono(#[from] chrono::ParseError),
+    #[error("chrono-tz")]
+    ChronoTz(#[from] chrono_tz::ParseError),
     #[error("unknown error")]
     Unknown,
 }
@@ -47,7 +53,8 @@ impl Groundspeak {
     const USER_AGENT_FETCH: &'static str = "L4C Pro/4.3.2 (iPhone; iOS 17.3.1; Scale/3.00)";
 
     //const FETCH_FIELDS: &'static str = "referenceCode,ianaTimezoneId,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,userData,favoritePoints,placedDate,eventEndDate,ownerAlias,owner,isPremiumOnly,userData,lastVisitedDate,status,hasSolutionChecker";
-    const FETCH_FIELDS: &'static str = "referenceCode,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,favoritePoints,placedDate,isPremiumOnly,lastVisitedDate,status,shortDescription,longDescription,hints,additionalWaypoints,geocacheLogs";
+    const EXPAND_FIELDS: &'static str = "geocachelogs:5";
+    const FETCH_FIELDS: &'static str = "referenceCode,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,favoritePoints,placedDate,isPremiumOnly,lastVisitedDate,status,shortDescription,longDescription,hints,additionalWaypoints,geocachelogs[loggedDate,ianaTimezoneId,text,geocacheLogType[id]]";
 
     pub fn new() -> Self {
         Self {
@@ -129,7 +136,7 @@ impl Groundspeak {
             .header(reqwest::header::ACCEPT_LANGUAGE, "en-US;q=1")
             .header(reqwest::header::USER_AGENT, Groundspeak::USER_AGENT_FETCH)
             .bearer_auth(token)
-            .query(&[("referenceCodes", comma_separated_codes), ("lite", "false".to_string()), ("fields", Groundspeak::FETCH_FIELDS.to_string()), ("expand", "geocacheLogs:5".to_string())])
+            .query(&[("referenceCodes", comma_separated_codes), ("lite", "false".to_string()), ("fields", Self::FETCH_FIELDS.to_string()), ("expand", Self::EXPAND_FIELDS.to_string())])
             .send()
             .await?;
         info!("fetch status {}", response.status().as_str());
@@ -179,6 +186,8 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     let available = v["status"].as_str().ok_or(Error::JsonRaw)? == "Active";
     // TODO archived?
     let archived = false; //v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
+    let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<gcgeo::GeocacheLog>, Error>>()?;
+
     Ok(gcgeo::Geocache {
         code,
         name,
@@ -193,6 +202,24 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
         cache_type,
         archived,
         available,
+        logs,
+    })
+}
+
+fn parse_geocache_log(v: &serde_json::Value) -> Result<gcgeo::GeocacheLog, Error> {
+    let date = v["loggedDate"].as_str().ok_or(Error::JsonRaw)?;
+    let tz = v["ianaTimezoneId"].as_str().ok_or(Error::JsonRaw)?;
+    let text = v["text"].as_str().ok_or(Error::JsonRaw)?;
+    let log_type = v["geocacheLogType"]["id"].as_u64().ok_or(Error::JsonRaw)?;
+
+    let naive_date = NaiveDateTime::parse_from_str(date, "%Y-%m-%dT%H:%M:%S%.f")?;
+    let tz: Tz = tz.parse()?;
+    let date = tz.from_utc_datetime(&naive_date);
+
+    Ok(gcgeo::GeocacheLog {
+        text: text.to_string(),
+        log_type: LogType::from(log_type),
+        timestamp: date.to_rfc3339(),
     })
 }
 
@@ -205,5 +232,14 @@ mod tests {
         let uut = Groundspeak::new();
         let tile = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
         uut.discover(&tile).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_parse() {
+        let text: &'static str = "{\"name\": \"Berg auf Berg ab (oder Jula's Geburtstagscache)\", \"hints\": \"Magnetisch, der Herr wird den Weg schon weisen.\", \"status\": \"Active\", \"terrain\": 2.5, \"difficulty\": 2.0, \"placedDate\": \"2012-10-02T00:00:00.000\", \"geocacheLogs\": [{\"text\": \"Ist dieser Cache überhaupt noch da? Seit 2021 nicht mehr gefunden.\", \"loggedDate\": \"2023-10-05T12:00:00.000\", \"ianaTimezoneId\": \"Europe/Berlin\", \"geocacheLogType\": {\"id\": 3}}, {\"text\": \"Na mehrfachen suchen und erfolglosem Kontakt zum Owner geb ich auch und logge einen DNF\", \"loggedDate\": \"2021-05-29T16:27:27.000\", \"ianaTimezoneId\": \"Europe/Berlin\", \"geocacheLogType\": {\"id\": 3}}, {\"text\": \"Die Daten waren schnell eingesammelt und so ging es zügig zum Final.Danke sagen Sonny&Harry\", \"loggedDate\": \"2021-05-16T12:00:00.000\", \"ianaTimezoneId\": \"Europe/Berlin\", \"geocacheLogType\": {\"id\": 2}}, {\"text\": \"Alle Stationen konnten gut gefunden werden.Irgendwo haben wir uns dann noch ins Logbuch reingequetscht.DFDC sagtTeam Rudi\", \"loggedDate\": \"2021-01-28T12:00:00.000\", \"ianaTimezoneId\": \"Europe/Berlin\", \"geocacheLogType\": {\"id\": 2}}, {\"text\": \"Für heute hatte ich mir ein paar Caches in VS und im Brigachtal rausgesucht.Nachdem ich am Magdalenenberg unterwegs war, ging es nach Grüningen.Diesen Cache konnte ich finden und mich noch irgendwo ins volle Logbuch reinzwängen.Danke fürs Legen und Herführen. TFTC\", \"loggedDate\": \"2020-05-23T12:00:00.000\", \"ianaTimezoneId\": \"Europe/Berlin\", \"geocacheLogType\": {\"id\": 2}}], \"geocacheSize\": {\"id\": 2, \"name\": \"Micro\"}, \"geocacheType\": {\"id\": 3, \"name\": \"Multi-Cache\", \"imageUrl\": \"https://www.geocaching.com/images/wpttypes/3.gif\"}, \"isPremiumOnly\": false, \"referenceCode\": \"GC3Y133\", \"favoritePoints\": 0, \"lastVisitedDate\": \"2021-05-16T12:00:00.000\", \"longDescription\": \"An diesem Berg bin ich aufgewachsen und musste ihn Tag ein und aus hoch und runter laufen, wobei hoch laufen deutlich anstrengender war und auch heute noch ist.Am Ausgangspunkt (nicht der empfohlene Parkplatz) angekommen musst Du auf ca. ABC Grad peilen und dann geht's auch schon los. Der Weg ist nicht weit und Du musst keinesfalls die grosse Strasse überschreiten um den Nano zu finden.A= Hausnummer (Eckhaus mit 3 Stromverteiler davor) -1B= Hausnummer (Eckhaus mit 3 Stromverteiler davor) *2C= Hausnummer (Eckhaus mit 3 Stromverteiler davor) +1\", \"shortDescription\": \"Ein kurzes Rätsel zu Jula's Geburtstag ;-)\", \"postedCoordinates\": {\"latitude\": 47.9842, \"longitude\": 8.4743}, \"additionalWaypoints\": [{\"url\": \"https://geocaching.com/seek/wpt.aspx?WID=de51dd1b-394b-42ee-b15d-0e3735ea6280\", \"name\": \"Empfohlener Parkplatz\", \"prefix\": \"00\", \"typeId\": 217, \"typeName\": \"Parking Area\", \"coordinates\": {\"latitude\": 47.9841, \"longitude\": 8.473}, \"description\": \"Bitte hier parken um die Aufmerksamkeit der Anwohner zu reduzieren.\", \"referenceCode\": \"WP003Y133\", \"visibilityTypeId\": 0}, {\"url\": \"https://geocaching.com/seek/wpt.aspx?WID=75db04aa-65e7-4194-854e-05c92a5f358a\", \"name\": \"Stage 1\", \"prefix\": \"01\", \"typeId\": 452, \"typeName\": \"Reference Point\", \"coordinates\": {\"latitude\": 47.9842, \"longitude\": 8.4743}, \"description\": \"Startpunkt von wo aus die Peilung vorgenommen werden muss. Der Startpunkt ist die Kreuzung.\", \"referenceCode\": \"WP013Y133\", \"visibilityTypeId\": 0}]}";
+        println!("{}", text);
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        let geocache = parse(&json).unwrap();
+        assert_eq!(geocache.code, "GC3Y133");
     }
 }

@@ -21,6 +21,7 @@ pub struct Geocache {
     pub cache_type: CacheType,
     pub archived: bool,
     pub available: bool,
+    pub logs: Vec<GeocacheLog>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -68,6 +69,7 @@ impl Geocache {
             encoded_hints: String::new(),
             size: ContainerSize::Unknown,
             cache_type: CacheType::Unknown,
+            logs: vec![],
         }
     }
 }
@@ -121,6 +123,31 @@ impl CacheType {
             3773 => Self::Headquarter,
             7005 => Self::GigaEvent,
             0 => Self::Waypoint,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct GeocacheLog {
+    pub text: String,
+    pub timestamp: String,
+    pub log_type: LogType,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub enum LogType {
+    Found,
+    DidNotFind,
+    WriteNote,
+    Unknown,
+}
+
+impl LogType {
+    pub fn from(cache_type: u64) -> Self {
+        match cache_type {
+            2 => Self::Found,
+            3 => Self::DidNotFind,
             _ => Self::Unknown,
         }
     }

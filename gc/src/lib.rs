@@ -162,8 +162,8 @@ impl Cache {
                 }
                 Err(e) => {
                     error!("Unable to fetch geocaches from Groundspeak, refreshing token {:?}", e);
-                    // self.token_cache.write().unwrap().refresh().await?;
-                    attempts += 2;
+                    self.token_cache.refresh().await?;
+                    attempts += 1;
                 }
             }
         }

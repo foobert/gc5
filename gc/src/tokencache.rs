@@ -1,24 +1,21 @@
-use log::{error, info};
+use log::{debug, error, info};
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use sqlx::Row;
 
 use crate::Error;
 
-pub struct TokenCache {
+pub struct AuthProvider {
     db: sqlx::PgPool,
-    // access_token: Arc<RwLock<Option<String>>>,
 }
 
-impl TokenCache {
+impl AuthProvider {
     pub fn new(pool: sqlx::PgPool) -> Self {
-        info!("Creating TokenCache");
         Self {
             db: pool,
-            // access_token: Arc::new(RwLock::new(None)),
         }
     }
 
-    pub async fn init_db(&self) -> Result<(), Error> {
+    pub async fn init(&self) -> Result<(), Error> {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS settings (
             id TEXT PRIMARY KEY,
@@ -30,54 +27,35 @@ impl TokenCache {
         Ok(())
     }
 
-    pub async fn token(&self) -> String {
-        info!("Loading access token from DB...");
-        let result = sqlx::query("SELECT value FROM settings where id = 'access_token'").fetch_one(&self.db).await;
-        match result {
-            Ok(row) => row.get(0),
-            Err(_) => self.refresh().await.expect("Failed to refresh token")
+    pub async fn token(&self) -> Result<String, Error> {
+        // TODO we should probably introspect the JWT and refresh if necessary
+        match self.load_access_token().await {
+            Ok(token) => Ok(token),
+            Err(_) => self.refresh().await
         }
-        /*
-        match &self.access_token {
-            Some(token) => token.clone(),
-            None => {
-                self.refresh().await.expect("Failed to refresh token")
-            }
-        }
-        */
     }
 
     pub async fn refresh(&self) -> Result<String, Error> {
-        info!("Need to refresh token");
-        // Load refresh token from db
         let refresh_token = self.load_refresh_token().await?;
-
-        // Call groundspeak with refresh token, get back new access token and refresh token
         let (new_access_token, new_refresh_token) = self.call_groundspeak(refresh_token).await?;
-
-        // Store new refresh token in db
-        self.store_refresh_token(new_refresh_token).await?;
-
-        // Store new access token in memory
-        // self.access_token = Some(new_access_token.clone());
-        //self.access_token.get_mut().unwrap().replace(new_access_token);
-        // self.access_token.write().unwrap().replace(new_access_token.clone());
-
-        sqlx::query("INSERT INTO settings (id, value) VALUES ('access_token', $1) ON CONFLICT (id) DO UPDATE SET value = $1")
-            .bind(&new_access_token)
-            .execute(&self.db).await?;
-
-        // Return access token
+        self.store_refresh_token(&new_refresh_token).await?;
+        self.store_access_token(&new_access_token).await?;
         info!("Access token: {}", new_access_token);
         Ok(new_access_token)
     }
+
     async fn load_refresh_token(&self) -> Result<String, Error> {
         let result =
             sqlx::query("SELECT value FROM settings where id = 'refresh_token'")
-                .fetch_one(&self.db).await;
-        let refresh_token = result.map(|row| row.get(0))?;
-        info!("Loaded refresh token from DB: {}", refresh_token);
-        Ok(refresh_token)
+                .fetch_one(&self.db).await?;
+        Ok(result.get(0))
+    }
+
+    async fn load_access_token(&self) -> Result<String, Error> {
+        let result =
+            sqlx::query("SELECT value FROM settings where id = 'access_token'")
+                .fetch_one(&self.db).await?;
+        Ok(result.get(0))
     }
 
     async fn call_groundspeak(&self, refresh_token: String) -> Result<(String, String), Error> {
@@ -120,8 +98,14 @@ impl TokenCache {
         }
     }
 
-    async fn store_refresh_token(&self, refresh_token: String) -> Result<(), Error> {
-        info!("Storing refresh token in DB: {}", refresh_token);
+    async fn store_access_token(&self, access_token: &str) -> Result<(), Error> {
+        sqlx::query("INSERT INTO settings (id, value) VALUES ('access_token', $1) ON CONFLICT (id) DO UPDATE SET value = $1")
+            .bind(&access_token)
+            .execute(&self.db).await?;
+        Ok(())
+    }
+
+    async fn store_refresh_token(&self, refresh_token: &str) -> Result<(), Error> {
         sqlx::query("INSERT INTO settings (id, value) VALUES ('refresh_token', $1) ON CONFLICT (id) DO UPDATE SET value = $1")
             .bind(&refresh_token)
             .execute(&self.db).await?;

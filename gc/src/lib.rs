@@ -9,7 +9,7 @@ use thiserror::Error;
 use gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
 
 use crate::groundspeak::{Groundspeak, parse};
-use crate::tokencache::TokenCache;
+use crate::tokencache::AuthProvider;
 
 pub mod groundspeak;
 pub mod job;
@@ -19,7 +19,7 @@ mod tokencache;
 pub struct Cache {
     db: sqlx::PgPool,
     groundspeak: Groundspeak,
-    token_cache: TokenCache,
+    token_cache: AuthProvider,
     jobs: HashMap<String, job::Job>,
 }
 
@@ -48,7 +48,7 @@ pub enum Error {
 impl Cache {
     pub fn new(pool: sqlx::PgPool) -> Self {
         let groundspeak = Groundspeak::new();
-        let token_cache = TokenCache::new(pool.clone());
+        let token_cache = AuthProvider::new(pool.clone());
         return Self {
             db: pool,
             groundspeak,
@@ -63,7 +63,7 @@ impl Cache {
             .connect("postgres://localhost/gc")
             .await?;
         let s = Self::new(pool);
-        s.token_cache.init_db().await?;
+        s.token_cache.init().await?;
         Ok(s)
     }
 
@@ -149,7 +149,7 @@ impl Cache {
         info!("Fetching {} geocaches from Groundspeak", codes.len());
         let mut attempts = 0;
         while attempts < 2 {
-            let token = self.token_cache.token().await;
+            let token = self.token_cache.token().await?;
             let fetched = self.groundspeak.fetch(&token, codes.clone()).await;
             match fetched {
                 Ok(fetched) => {

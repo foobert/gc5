@@ -67,7 +67,9 @@ async fn codes(cache: &State<Cache>) -> String {
 async fn fetch(code: String, cache: &State<Cache>) -> String {
     let geocaches = cache.get(vec![code]).await.ok().unwrap();
     let geocache = geocaches.get(0).unwrap();
-    format!("{}", geocache)
+    info!("Geocache: {:?}", geocache);
+    // format!("{}", geocache)
+    serde_json::to_string(geocache).unwrap()
 }
 
 

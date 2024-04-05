@@ -1,6 +1,8 @@
 use std::{f64::consts::PI, fmt};
 
-#[derive(Debug)]
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
 pub struct Coordinate {
     pub lat: f64,
     pub lon: f64,
@@ -13,7 +15,8 @@ impl fmt::Display for Coordinate {
 }
 
 impl Coordinate {
-    const EARTH_RADIUS: u32 = 6_371_000; // radius of earth in meters
+    const EARTH_RADIUS: u32 = 6_371_000;
+    // radius of earth in meters
     pub fn project(&self, distance: f64, bearing: f64) -> Self {
         // see http://www.movable-type.co.uk/scripts/latlong.html
         // (all angles in radians)
@@ -23,12 +26,12 @@ impl Coordinate {
 
         let lat_rad2 = (lat_rad.sin() * (distance / Self::EARTH_RADIUS as f64).cos()
             + lat_rad.cos() * (distance / Self::EARTH_RADIUS as f64).sin() * bearing_rad.cos())
-        .asin();
+            .asin();
         let mut lon_rad2 = lon_rad
             + (bearing_rad.sin() * (distance / Self::EARTH_RADIUS as f64).sin() * lat_rad.cos())
-                .atan2(
-                    (distance / Self::EARTH_RADIUS as f64).cos() - lat_rad.sin() * lat_rad2.sin(),
-                );
+            .atan2(
+                (distance / Self::EARTH_RADIUS as f64).cos() - lat_rad.sin() * lat_rad2.sin(),
+            );
 
         // The longitude can be normalised to −180…+180 using (lon+540)%360-180
         lon_rad2 = (lon_rad2 + 540.0) % 360.0 - 180.0;

@@ -1,10 +1,12 @@
 use std::fmt;
 
+use serde::Serialize;
+
 use crate::Coordinate;
 
 pub type GcCodes = Vec<String>;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Geocache {
     pub code: String,
     pub name: String,
@@ -21,7 +23,7 @@ pub struct Geocache {
     pub available: bool,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub enum ContainerSize {
     Nano,
     Micro,
@@ -79,7 +81,7 @@ impl ContainerSize {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub enum CacheType {
     Traditional,
     Multi,

@@ -691,6 +691,7 @@ dependencies = [
  "assert_approx_eq",
  "geo",
  "gpx",
+ "serde",
 ]
 
 [[package]]
@@ -2883,6 +2884,7 @@ dependencies = [
  "gcgeo",
  "log",
  "rocket",
+ "serde_json",
  "sqlx",
  "thiserror",
  "tokio",

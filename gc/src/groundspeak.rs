@@ -46,7 +46,8 @@ impl Groundspeak {
 
     const USER_AGENT_FETCH: &'static str = "L4C Pro/4.3.2 (iPhone; iOS 17.3.1; Scale/3.00)";
 
-    const FETCH_FIELDS: &'static str = "referenceCode,ianaTimezoneId,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,userData,favoritePoints,placedDate,eventEndDate,ownerAlias,owner,isPremiumOnly,userData,lastVisitedDate,status,hasSolutionChecker";
+    //const FETCH_FIELDS: &'static str = "referenceCode,ianaTimezoneId,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,userData,favoritePoints,placedDate,eventEndDate,ownerAlias,owner,isPremiumOnly,userData,lastVisitedDate,status,hasSolutionChecker";
+    const FETCH_FIELDS: &'static str = "referenceCode,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,favoritePoints,placedDate,isPremiumOnly,lastVisitedDate,status,shortDescription,longDescription,hints,additionalWaypoints,geocacheLogs";
 
     pub fn new() -> Self {
         Self {
@@ -128,12 +129,12 @@ impl Groundspeak {
             .header(reqwest::header::ACCEPT_LANGUAGE, "en-US;q=1")
             .header(reqwest::header::USER_AGENT, Groundspeak::USER_AGENT_FETCH)
             .bearer_auth(token)
-            .query(&[("referenceCodes", comma_separated_codes), ("lite", "true".to_string()), ("fields", Groundspeak::FETCH_FIELDS.to_string())])
+            .query(&[("referenceCodes", comma_separated_codes), ("lite", "false".to_string()), ("fields", Groundspeak::FETCH_FIELDS.to_string()), ("expand", "geocacheLogs:5".to_string())])
             .send()
             .await?;
-        debug!("fetch status {}", response.status().as_str());
+        info!("fetch status {}", response.status().as_str());
         let json: serde_json::Value = serde_json::from_slice(&response.bytes().await?)?;
-        debug!("fetch json {:#?}", json);
+        info!("fetch json {:#?}", json);
 
         sleep(Duration::from_secs(1)).await;
 
@@ -162,13 +163,9 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     let difficulty = v["difficulty"].as_f64().ok_or(Error::JsonRaw)? as f32;
     let lat = v["postedCoordinates"]["latitude"].as_f64().ok_or(Error::JsonRaw)?;
     let lon = v["postedCoordinates"]["longitude"].as_f64().ok_or(Error::JsonRaw)?;
-    // TODO short description?
-    let short_description = String::from(v["name"].as_str().unwrap_or_default());
-    // let short_description = String::from(v["ShortDescription"].as_str().ok_or(Error::JsonRaw)?);
-    // TODO long description?
-    let long_description = String::from(v["name"].as_str().ok_or(Error::JsonRaw)?);
-    // TODO hints?
-    let encoded_hints = String::new(); // String::from(v["EncodedHints"].as_str().ok_or(Error::JsonRaw)?);
+    let short_description = String::from(v["shortDescription"].as_str().ok_or(Error::JsonRaw)?);
+    let long_description = String::from(v["longDescription"].as_str().ok_or(Error::JsonRaw)?);
+    let encoded_hints = String::from(v["hints"].as_str().ok_or(Error::JsonRaw)?);
     let size = ContainerSize::from(
         v["geocacheSize"]["id"]
             .as_u64()

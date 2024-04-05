@@ -31,7 +31,7 @@ impl Garmin {
                     let mut waypoint = Waypoint::new(Point::new(gc.coord.lon, gc.coord.lat));
                     waypoint.name = Some(Self::title(&gc));
                     waypoint.description = Some(Self::description(&gc));
-                    waypoint._type = Some(String::from("geocache"));
+                    waypoint.type_ = Some(String::from("geocache"));
                     waypoint
                 }),
         );

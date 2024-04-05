@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
+use chrono::{NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use log::{debug, info};
 use rand::Rng;

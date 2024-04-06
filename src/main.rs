@@ -52,10 +52,9 @@ fn index() -> &'static str {
     "Hello, world!"
 }
 
-#[get("/codes")]
-async fn codes(cache: &State<Cache>) -> String {
-    // let t = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
-    let t = gcgeo::Tile::from_coordinates(47.931330700422194, 8.452201111545495, 14);
+#[get("/codes?<lat>&<lon>&<zoom>")]
+async fn codes(lat: f64, lon: f64, zoom: Option<u8>, cache: &State<Cache>) -> String {
+    let t = gcgeo::Tile::from_coordinates(lat, lon, zoom.unwrap_or(14));
     match cache.discover(&t).await {
         Ok(Timestamped { data, ts: _ts }) => {
             format!("codes: {}", data.len())

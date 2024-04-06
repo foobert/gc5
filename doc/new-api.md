@@ -69,7 +69,8 @@ curl \
 Note that `lite=true` will limit the fields you can query, for example `hints` will not be available. But you can just
 set `lite=false`.
 
-The [full API description](groundspeak-openapi.json) is available as OpenAPI 2.0.
+The [full API description](groundspeak-openapi.json) is available as OpenAPI 2.0. There's also
+an [online Swagger UI](https://api.groundspeak.com/api-docs/index) available.
 
 Here's also an example response:
 

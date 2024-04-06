@@ -58,10 +58,10 @@ async fn codes(cache: &State<Cache>) -> String {
     let t = gcgeo::Tile::from_coordinates(47.931330700422194, 8.452201111545495, 14);
     match cache.discover(&t).await {
         Ok(Timestamped { data, ts: _ts }) => {
-            return format!("codes: {}", data.len());
+            format!("codes: {}", data.len())
         }
         Err(err) => {
-            return err.to_string();
+            err.to_string()
         }
     }
 }
@@ -79,8 +79,8 @@ async fn fetch(code: String, cache: &State<Cache>) -> String {
 #[post("/track", data = "<data>")]
 async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cache>) -> Vec<u8> {
     info!("accept: {}", accept);
-    let datastream = data.open(10.megabytes());
-    let reader = datastream.into_bytes().await.unwrap();
+    let data_stream = data.open(10.megabytes());
+    let reader = data_stream.into_bytes().await.unwrap();
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
     let tiles = cache.tracks(reader.as_slice()).await.unwrap();
     info!("Track resolved into {} tiles", &tiles.len());

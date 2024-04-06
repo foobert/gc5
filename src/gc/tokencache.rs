@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{error, info};
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use sqlx::Row;
 

@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::Serialize;
 
-use crate::Coordinate;
+use super::Coordinate;
 
 pub type GcCodes = Vec<String>;
 

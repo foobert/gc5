@@ -1,5 +1,6 @@
-use crate::Coordinate;
 use std::{collections::HashSet, f64::consts::PI, fmt};
+
+use super::Coordinate;
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Tile {
@@ -13,6 +14,7 @@ impl fmt::Display for Tile {
         write!(f, "{}/{}/{} #{}", self.z, self.x, self.y, self.quadkey())
     }
 }
+
 impl Tile {
     const DEFAULT_ZOOM: u8 = 12;
 
@@ -41,7 +43,7 @@ impl Tile {
             y: self.y + 1,
             z: self.z,
         }
-        .to_coord()
+            .to_coord()
     }
 
     pub fn quadkey(&self) -> u32 {
@@ -87,8 +89,9 @@ impl Tile {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use assert_approx_eq::assert_approx_eq;
+
+    use super::*;
 
     #[test]
     fn test_corner_coordinates() {

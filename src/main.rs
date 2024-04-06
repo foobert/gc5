@@ -12,6 +12,9 @@ use thiserror::Error;
 use gc::{Cache, Timestamped};
 use gcgeo::{CacheType, Geocache};
 
+mod gcgeo;
+mod gc;
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("db error")]
@@ -51,7 +54,7 @@ fn index() -> &'static str {
 
 #[get("/codes")]
 async fn codes(cache: &State<Cache>) -> String {
-    // let t = geo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
+    // let t = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
     let t = gcgeo::Tile::from_coordinates(47.931330700422194, 8.452201111545495, 14);
     match cache.discover(&t).await {
         Ok(Timestamped { data, ts: _ts }) => {

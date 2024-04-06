@@ -9,7 +9,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::time::sleep;
 
-use gcgeo::{CacheType, ContainerSize, LogType, Tile};
+use crate::gcgeo::{CacheType, ContainerSize, Coordinate, Geocache, GeocacheLog, LogType, Tile};
 
 pub const BATCH_SIZE: usize = 50;
 
@@ -156,13 +156,13 @@ impl Groundspeak {
     }
 }
 
-pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
+pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
     // this is pretty ugly, but more advanced serde scared me more
     let code = String::from(v["referenceCode"].as_str().ok_or(Error::JsonRaw)?);
     let is_premium = v["isPremiumOnly"].as_bool().unwrap_or(false);
 
     if is_premium {
-        return Ok(gcgeo::Geocache::premium(code));
+        return Ok(Geocache::premium(code));
     }
 
     let name = String::from(v["name"].as_str().ok_or(Error::JsonRaw)?);
@@ -186,15 +186,15 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     let available = v["status"].as_str().ok_or(Error::JsonRaw)? == "Active";
     // TODO archived?
     let archived = false; //v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
-    let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<gcgeo::GeocacheLog>, Error>>()?;
+    let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<GeocacheLog>, Error>>()?;
 
-    Ok(gcgeo::Geocache {
+    Ok(Geocache {
         code,
         name,
         is_premium,
         terrain,
         difficulty,
-        coord: gcgeo::Coordinate { lat, lon },
+        coord: Coordinate { lat, lon },
         short_description,
         long_description,
         encoded_hints,
@@ -206,7 +206,7 @@ pub fn parse(v: &serde_json::Value) -> Result<gcgeo::Geocache, Error> {
     })
 }
 
-fn parse_geocache_log(v: &serde_json::Value) -> Result<gcgeo::GeocacheLog, Error> {
+fn parse_geocache_log(v: &serde_json::Value) -> Result<GeocacheLog, Error> {
     let date = v["loggedDate"].as_str().ok_or(Error::JsonRaw)?;
     let tz = v["ianaTimezoneId"].as_str().ok_or(Error::JsonRaw)?;
     let text = v["text"].as_str().ok_or(Error::JsonRaw)?;
@@ -216,7 +216,7 @@ fn parse_geocache_log(v: &serde_json::Value) -> Result<gcgeo::GeocacheLog, Error
     let tz: Tz = tz.parse()?;
     let date = tz.from_utc_datetime(&naive_date);
 
-    Ok(gcgeo::GeocacheLog {
+    Ok(GeocacheLog {
         text: text.to_string(),
         log_type: LogType::from(log_type),
         timestamp: date.to_rfc3339(),
@@ -230,7 +230,7 @@ mod tests {
     #[tokio::test]
     async fn test_foo() {
         let uut = Groundspeak::new();
-        let tile = gcgeo::Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
+        let tile = Tile::from_coordinates(51.34469577842422, 12.374765732990399, 12);
         uut.discover(&tile).await.unwrap();
     }
 

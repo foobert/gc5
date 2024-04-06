@@ -1,8 +1,8 @@
 use std::{collections::HashSet, io::Error};
 
-use geo::{LineString, ClosestPoint, GeodesicDistance};
+use geo::{ClosestPoint, GeodesicDistance, LineString};
 
-use crate::{Coordinate, Tile};
+use super::{Coordinate, Tile};
 
 pub struct Track {
     pub tiles: Vec<Tile>,
@@ -33,9 +33,9 @@ impl Track {
             .collect();
 
         let line_string = LineString::from_iter(waypoints.iter()
-        .map(|coord| geo::coord! {x: coord.lon, y: coord.lat}));
+            .map(|coord| geo::coord! {x: coord.lon, y: coord.lat}));
 
-        Ok(Track { tiles, waypoints, line_string})
+        Ok(Track { tiles, waypoints, line_string })
     }
 
     pub fn near(&self, coord: &Coordinate) -> u16 {

@@ -2,7 +2,7 @@ use log::{debug, error, info};
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use sqlx::Row;
 
-use crate::Error;
+use super::cache::Error;
 
 pub struct AuthProvider {
     db: sqlx::PgPool,

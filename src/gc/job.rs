@@ -1,8 +1,7 @@
 use log::debug;
 
-use gcgeo::{Geocache, Tile};
-
 use crate::Cache;
+use crate::gcgeo::{Geocache, Tile};
 
 pub struct Job {
     tiles: Vec<Tile>,

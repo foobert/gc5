@@ -6,21 +6,16 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use thiserror::Error;
 
-use gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
+use crate::gcgeo::{Coordinate, GcCodes, Geocache, Tile, Track};
 
-use crate::groundspeak::{Groundspeak, parse};
-use crate::tokencache::AuthProvider;
-
-pub mod groundspeak;
-pub mod job;
-pub mod garmin;
-mod tokencache;
+use super::groundspeak::{Groundspeak, parse};
+use super::tokencache::AuthProvider;
 
 pub struct Cache {
     db: sqlx::PgPool,
     groundspeak: Groundspeak,
     token_cache: AuthProvider,
-    jobs: HashMap<String, job::Job>,
+    jobs: HashMap<String, super::job::Job>,
 }
 
 #[derive(Error, Debug)]
@@ -30,7 +25,7 @@ pub enum Error {
     #[error("db error")]
     Database(#[from] sqlx::Error),
     #[error("groundspeak")]
-    GroundSpeak(#[from] groundspeak::Error),
+    GroundSpeak(#[from] super::groundspeak::Error),
     #[error("reqwest")]
     Reqwest(#[from] reqwest::Error),
     #[error("json")]
@@ -202,7 +197,7 @@ impl Cache {
         match json_result {
             Some(row) => {
                 let gc: serde_json::Value = serde_json::from_str(row.get(0))?;
-                return Ok(Some(groundspeak::parse(&gc)?));
+                return Ok(Some(parse(&gc)?));
             }
             None => {
                 return Ok(None);

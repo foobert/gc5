@@ -6,9 +6,9 @@ use log::{error, info};
 use regex::Regex;
 use tempfile::NamedTempFile;
 
-use gcgeo::Geocache;
+use crate::gcgeo::{CacheType, Geocache};
 
-use crate::Error;
+use super::cache::Error;
 
 pub struct Garmin {
     geocaches: Vec<Geocache>,
@@ -18,7 +18,7 @@ impl Garmin {
     pub fn new(geocaches: Vec<Geocache>) -> Self {
         Self { geocaches }
     }
-    pub fn gpx<W: Write>(&self, cache_type: &gcgeo::CacheType, writer: &mut W) -> Result<(), Error> {
+    pub fn gpx<W: Write>(&self, cache_type: &CacheType, writer: &mut W) -> Result<(), Error> {
         info!("Writing gpx");
         let mut gpx = gpx::Gpx::default();
         gpx.creator = Some(String::from("cachecache"));
@@ -39,7 +39,7 @@ impl Garmin {
         Ok(())
     }
 
-    pub fn gpi<W: ?Sized>(&self, cache_type: &gcgeo::CacheType, writer: &mut W) -> Result<(), Error>
+    pub fn gpi<W: ?Sized>(&self, cache_type: &CacheType, writer: &mut W) -> Result<(), Error>
         where
             W: Write,
     {

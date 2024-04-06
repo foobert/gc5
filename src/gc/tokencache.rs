@@ -62,13 +62,13 @@ impl AuthProvider {
         // Create a HeaderMap and add the necessary headers
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/x-www-form-urlencoded; charset=UTF-8"));
-        headers.insert(USER_AGENT, HeaderValue::from_static("looking4cache_pro/00336 CFNetwork/1492.0.1 Darwin/23.3.0"));
+        headers.insert(USER_AGENT, HeaderValue::from_static(env!("AUTH_USERAGENT")));
         headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
         headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-us"));
 
         // Create the body data
         let params = [
-            ("redirect_uri", "https://app.looking4cache.com/l4cpro/auth/groundspeak"),
+            ("redirect_uri", env!("AUTH_REDIRECT_URL")),
             ("refresh_token", &refresh_token),
             ("grant_type", "refresh_token"),
         ];
@@ -76,7 +76,7 @@ impl AuthProvider {
         // Send the POST request
         let client = reqwest::Client::new();
         let res = client.post("https://oauth.geocaching.com/token")
-            .basic_auth("3E820485-D22A-48AE-8B78-75CA62A13190", Some("58987034-EB51-45F3-BB8B-764E263DD3BC"))
+            .basic_auth(env!("AUTH_USERNAME"), Some(env!("AUTH_PASSWORD")))
             .headers(headers)
             .form(&params)
             .send()

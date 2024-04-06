@@ -50,7 +50,7 @@ impl Groundspeak {
 
     const USER_AGENT: &'static str = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/112.0";
 
-    const USER_AGENT_FETCH: &'static str = "L4C Pro/4.3.2 (iPhone; iOS 17.3.1; Scale/3.00)";
+    const USER_AGENT_FETCH: &'static str = env!("USERAGENT");
 
     //const FETCH_FIELDS: &'static str = "referenceCode,ianaTimezoneId,name,postedCoordinates,geocacheType,geocacheSize,difficulty,terrain,userData,favoritePoints,placedDate,eventEndDate,ownerAlias,owner,isPremiumOnly,userData,lastVisitedDate,status,hasSolutionChecker";
     const EXPAND_FIELDS: &'static str = "geocachelogs:5";

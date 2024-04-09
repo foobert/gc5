@@ -60,6 +60,7 @@ async fn codes(lat: f64, lon: f64, zoom: Option<u8>, cache: &State<Cache>) -> St
             format!("codes: {}", data.len())
         }
         Err(err) => {
+            error!("Error: {:?}", err);
             err.to_string()
         }
     }
@@ -87,7 +88,7 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cach
     for (i, tile) in tiles.iter().enumerate() {
         info!("Discover tile {}/{} {}", i + 1, &tiles.len(), tile);
         let mut tmp = cache.discover(tile).await.unwrap();
-        gccodes.append(&mut tmp.data);
+        gccodes.append(&mut tmp.data.iter().map(|x| x.code.clone()).collect());
     }
     info!("Discovered {} geocaches", gccodes.len());
     let all_geocaches: Vec<Geocache> = cache.get(gccodes).await.unwrap();

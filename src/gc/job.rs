@@ -22,8 +22,8 @@ impl Job {
         for tile in job.tiles.iter() {
             debug!("Discover tile {}", tile);
             // TODO deal with unreap here
-            let mut tmp = cache.discover(tile).await.unwrap();
-            codes.append(&mut tmp.data);
+            // let mut tmp = cache.discover(tile).await.unwrap();
+            // codes.append(&mut tmp.data);
         }
         debug!("Discovered {} geocaches", codes.len());
         job.geocaches = cache.get(codes).await.unwrap();

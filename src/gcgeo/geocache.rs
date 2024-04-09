@@ -4,8 +4,6 @@ use serde::Serialize;
 
 use super::Coordinate;
 
-pub type GcCodes = Vec<String>;
-
 #[derive(Debug, Serialize)]
 pub struct Geocache {
     pub code: String,

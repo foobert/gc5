@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use chrono::{NaiveDateTime, TimeZone};
@@ -17,10 +17,17 @@ pub struct Groundspeak {
     client: reqwest::Client,
 }
 
-pub type GcCodes = Vec<String>;
+pub type GcCodes = Vec<GcCode>;
+
+#[derive(Debug)]
+pub struct GcCode {
+    pub code: String,
+    pub approx_coord: Option<Coordinate>,
+}
 
 #[derive(Deserialize, Debug)]
 struct GroundspeakTileResponse {
+    grid: Vec<String>,
     data: HashMap<String, Vec<ResponseObject>>,
 }
 
@@ -43,6 +50,13 @@ pub enum Error {
     ChronoTz(#[from] chrono_tz::ParseError),
     #[error("unknown error")]
     Unknown,
+}
+
+struct MapMinMax {
+    min_x: u8,
+    max_x: u8,
+    min_y: u8,
+    max_y: u8,
 }
 
 impl Groundspeak {
@@ -109,15 +123,64 @@ impl Groundspeak {
 
         let info = response.json::<GroundspeakTileResponse>().await?;
 
-        // TODO strings are copied, can we do it without copying?
-        let codes_set: std::collections::BTreeSet<String> = info
-            .data
-            .values()
-            .flat_map(|v| v.iter().map(|o| String::from(&o.i)))
-            .collect();
-        let codes = Vec::from_iter(codes_set.into_iter());
+        let mut map: HashMap<String, MapMinMax> = HashMap::new();
 
-        info!("Discover {} -> {}", tile, codes.len());
+        let x_size = info.grid[0].len() - 1;
+        let y_size = info.grid.len() - 1;
+        info!("x/y size: {}/{}", x_size, y_size);
+
+        for (key, xs) in info.data.iter() {
+            let (x, y) = extract_x_y(key);
+            if let Some(v) = xs.first() {
+                let gc_code = String::from(&v.i);
+                let entry = map.entry(gc_code).or_insert(MapMinMax {
+                    min_x: x,
+                    max_x: x,
+                    min_y: y,
+                    max_y: y,
+                });
+                if entry.max_x < x {
+                    entry.max_x = x;
+                }
+                if entry.min_x > x {
+                    entry.min_x = x;
+                }
+                if entry.max_y < y {
+                    entry.max_y = y;
+                }
+                if entry.min_y > y {
+                    entry.min_y = y;
+                }
+            }
+        }
+
+        let mut codes: Vec<GcCode> = Vec::new();
+        info!("DISCOVER");
+        for (code, value) in map.iter() {
+            info!("{}: {} {} {} {}", code, value.min_x, value.max_x, value.min_y, value.max_y);
+            let x_mid = (value.max_x + value.min_x) as f64 / 2.0;
+            let y_mid = (value.max_y + value.min_y) as f64 / 2.0;
+            let x = x_mid / x_size as f64;
+            let y = y_mid / y_size as f64;
+            info!("{}: {} {}", code, x, y);
+            let coord = tile.utf_grid_offset(x, y);
+            info!("{}: {}", code, coord);
+            codes.push(GcCode {
+                code: code.to_string(),
+                approx_coord: Some(coord),
+            });
+        }
+
+
+        // TODO strings are copied, can we do it without copying?
+        // let codes_set: std::collections::BTreeSet<String> = info
+        //     .data
+        //     .values()
+        //     .flat_map(|v| v.iter().map(|o| String::from(&o.i)))
+        //     .collect();
+        // let codes = Vec::from_iter(codes_set.into_iter());
+        //
+        // info!("Discover {} -> {}", tile, codes.len());
 
         Ok(codes)
     }
@@ -136,7 +199,7 @@ impl Groundspeak {
             .header(reqwest::header::ACCEPT_LANGUAGE, "en-US;q=1")
             .header(reqwest::header::USER_AGENT, Groundspeak::USER_AGENT_FETCH)
             .bearer_auth(token)
-            .query(&[("referenceCodes", comma_separated_codes), ("lite", "false".to_string()), ("fields", Self::FETCH_FIELDS.to_string()), ("expand", Self::EXPAND_FIELDS.to_string())])
+            .query(&[("referenceCodes", comma_separated_codes), ("lite", "true".to_string()), ("fields", Self::FETCH_FIELDS.to_string()), ("expand", Self::EXPAND_FIELDS.to_string())])
             .send()
             .await?;
         info!("fetch status {}", response.status().as_str());
@@ -145,20 +208,26 @@ impl Groundspeak {
 
         sleep(Duration::from_secs(1)).await;
 
-        let geocaches = json.as_array().ok_or(Error::JsonRaw)?.clone();
+        let mut geocaches = json.as_array().ok_or(Error::JsonRaw)?.clone();
         debug!("fetch geocaches {}", geocaches.len());
-
-        if geocaches.len() != codes.len() {
-            return Err(Error::JsonRaw);
-        }
 
         Ok(geocaches)
     }
 }
 
+fn extract_x_y(key: &str) -> (u8, u8) {
+    info!("extracting {}", key);
+    let parts: Vec<&str> = key.strip_prefix('(').unwrap_or(key).strip_suffix(')').unwrap_or(key).split(',').collect();
+    let x = parts[0].trim().parse::<u8>().unwrap();
+    let y = parts[1].trim().parse::<u8>().unwrap();
+    (x, y)
+}
+
 pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
+    debug!("parsing geocache");
     // this is pretty ugly, but more advanced serde scared me more
     let code = String::from(v["referenceCode"].as_str().ok_or(Error::JsonRaw)?);
+    info!("Parse geocache {}", code);
     let is_premium = v["isPremiumOnly"].as_bool().unwrap_or(false);
 
     if is_premium {
@@ -170,9 +239,15 @@ pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
     let difficulty = v["difficulty"].as_f64().ok_or(Error::JsonRaw)? as f32;
     let lat = v["postedCoordinates"]["latitude"].as_f64().ok_or(Error::JsonRaw)?;
     let lon = v["postedCoordinates"]["longitude"].as_f64().ok_or(Error::JsonRaw)?;
+    /* not availble for lite=true
     let short_description = String::from(v["shortDescription"].as_str().ok_or(Error::JsonRaw)?);
     let long_description = String::from(v["longDescription"].as_str().ok_or(Error::JsonRaw)?);
     let encoded_hints = String::from(v["hints"].as_str().ok_or(Error::JsonRaw)?);
+     */
+    let short_description = String::new();
+    let long_description = String::new();
+    let encoded_hints = String::new();
+
     let size = ContainerSize::from(
         v["geocacheSize"]["id"]
             .as_u64()
@@ -186,7 +261,9 @@ pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
     let available = v["status"].as_str().ok_or(Error::JsonRaw)? == "Active";
     // TODO archived?
     let archived = false; //v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
-    let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<GeocacheLog>, Error>>()?;
+    // not available for lite=true
+    // let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<GeocacheLog>, Error>>()?;
+    let logs = vec![];
 
     Ok(Geocache {
         code,

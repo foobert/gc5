@@ -85,6 +85,13 @@ impl Tile {
         }
         result.into_iter().collect()
     }
+
+    pub fn utf_grid_offset(&self, x: f64, y: f64) -> Coordinate {
+        let lon = (self.x as f64 + x) / (self.z as f64).exp2() * 360.0 - 180.0;
+        let n = PI - 2.0 * PI * (self.y as f64 + y) / (self.z as f64).exp2();
+        let lat = 180.0 / PI * (0.5 * (n.exp() - (-n).exp())).atan();
+        Coordinate { lat, lon }
+    }
 }
 
 #[cfg(test)]

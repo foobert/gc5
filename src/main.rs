@@ -10,6 +10,7 @@ use rocket::{Data, data::ToByteUnit, State};
 use thiserror::Error;
 
 use gc::{Cache, Timestamped};
+use gc::groundspeak::GcCode;
 use gcgeo::{CacheType, Geocache};
 
 mod gcgeo;
@@ -84,14 +85,22 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cach
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
     let tiles = cache.tracks(reader.as_slice()).await.unwrap();
     info!("Track resolved into {} tiles", &tiles.len());
-    let mut gccodes: Vec<String> = Vec::new();
+    let mut gccodes: Vec<GcCode> = Vec::new();
     for (i, tile) in tiles.iter().enumerate() {
         info!("Discover tile {}/{} {}", i + 1, &tiles.len(), tile);
         let mut tmp = cache.discover(tile).await.unwrap();
-        gccodes.append(&mut tmp.data.iter().map(|x| x.code.clone()).collect());
+        gccodes.append(&mut (tmp.data as Vec<GcCode>));
     }
     info!("Discovered {} geocaches", gccodes.len());
-    let all_geocaches: Vec<Geocache> = cache.get(gccodes).await.unwrap();
+    let near_codes: Vec<String> = gccodes.into_iter().filter(|gc| {
+        match &gc.approx_coord {
+            Some(coord) => track.near(coord) <= 100,
+            None => { true }
+        }
+    }).map(|gc| gc.code).collect();
+
+    info!("Prefiltered {} geocaches", near_codes.len());
+    let all_geocaches: Vec<Geocache> = cache.get(near_codes).await.unwrap();
     let geocaches: Vec<Geocache> = all_geocaches
         .into_iter()
         .filter(|gc| is_active(&gc))

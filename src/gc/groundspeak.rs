@@ -9,6 +9,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::time::sleep;
 
+use crate::gc::utfgrid::UtfGrid;
 use crate::gcgeo::{CacheType, ContainerSize, Coordinate, Geocache, GeocacheLog, LogType, Tile};
 
 pub const BATCH_SIZE: usize = 50;
@@ -25,17 +26,6 @@ pub struct GcCode {
     pub approx_coord: Option<Coordinate>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GroundspeakTileResponse {
-    grid: Vec<String>,
-    data: HashMap<String, Vec<ResponseObject>>,
-}
-
-#[derive(Deserialize, Debug)]
-struct ResponseObject {
-    i: String,
-}
-
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("request error")]
@@ -50,13 +40,6 @@ pub enum Error {
     ChronoTz(#[from] chrono_tz::ParseError),
     #[error("unknown error")]
     Unknown,
-}
-
-struct MapMinMax {
-    min_x: u8,
-    max_x: u8,
-    min_y: u8,
-    max_y: u8,
 }
 
 impl Groundspeak {
@@ -120,67 +103,8 @@ impl Groundspeak {
             info!("Discover {} -> 0", tile);
             return Ok(vec![]);
         }
-
-        let info = response.json::<GroundspeakTileResponse>().await?;
-
-        let mut map: HashMap<String, MapMinMax> = HashMap::new();
-
-        let x_size = info.grid[0].len() - 1;
-        let y_size = info.grid.len() - 1;
-        info!("x/y size: {}/{}", x_size, y_size);
-
-        for (key, xs) in info.data.iter() {
-            let (x, y) = extract_x_y(key);
-            if let Some(v) = xs.first() {
-                let gc_code = String::from(&v.i);
-                let entry = map.entry(gc_code).or_insert(MapMinMax {
-                    min_x: x,
-                    max_x: x,
-                    min_y: y,
-                    max_y: y,
-                });
-                if entry.max_x < x {
-                    entry.max_x = x;
-                }
-                if entry.min_x > x {
-                    entry.min_x = x;
-                }
-                if entry.max_y < y {
-                    entry.max_y = y;
-                }
-                if entry.min_y > y {
-                    entry.min_y = y;
-                }
-            }
-        }
-
-        let mut codes: Vec<GcCode> = Vec::new();
-        info!("DISCOVER");
-        for (code, value) in map.iter() {
-            info!("{}: {} {} {} {}", code, value.min_x, value.max_x, value.min_y, value.max_y);
-            let x_mid = (value.max_x + value.min_x) as f64 / 2.0;
-            let y_mid = (value.max_y + value.min_y) as f64 / 2.0;
-            let x = x_mid / x_size as f64;
-            let y = y_mid / y_size as f64;
-            info!("{}: {} {}", code, x, y);
-            let coord = tile.utf_grid_offset(x, y);
-            info!("{}: {}", code, coord);
-            codes.push(GcCode {
-                code: code.to_string(),
-                approx_coord: Some(coord),
-            });
-        }
-
-
-        // TODO strings are copied, can we do it without copying?
-        // let codes_set: std::collections::BTreeSet<String> = info
-        //     .data
-        //     .values()
-        //     .flat_map(|v| v.iter().map(|o| String::from(&o.i)))
-        //     .collect();
-        // let codes = Vec::from_iter(codes_set.into_iter());
-        //
-        // info!("Discover {} -> {}", tile, codes.len());
+        let grid = response.json::<UtfGrid>().await?;
+        let codes = grid.parse(&tile).await?;
 
         Ok(codes)
     }
@@ -213,14 +137,6 @@ impl Groundspeak {
 
         Ok(geocaches)
     }
-}
-
-fn extract_x_y(key: &str) -> (u8, u8) {
-    info!("extracting {}", key);
-    let parts: Vec<&str> = key.strip_prefix('(').unwrap_or(key).strip_suffix(')').unwrap_or(key).split(',').collect();
-    let x = parts[0].trim().parse::<u8>().unwrap();
-    let y = parts[1].trim().parse::<u8>().unwrap();
-    (x, y)
 }
 
 pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {

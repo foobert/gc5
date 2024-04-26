@@ -20,7 +20,7 @@ pub struct Groundspeak {
 
 pub type GcCodes = Vec<GcCode>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GcCode {
     pub code: String,
     pub approx_coord: Option<Coordinate>,
@@ -113,7 +113,7 @@ impl Groundspeak {
         if codes.len() > BATCH_SIZE {
             return Err(Error::Unknown);
         }
-        info!("fetch chunk {}", codes.len());
+        debug!("fetch chunk {}", codes.len());
         let codes_str: Vec<&str> = codes.iter().map(|x| x.as_str()).collect();
         let comma_separated_codes = codes_str.join(",");
         let response = self
@@ -126,9 +126,9 @@ impl Groundspeak {
             .query(&[("referenceCodes", comma_separated_codes), ("lite", "true".to_string()), ("fields", Self::FETCH_FIELDS.to_string()), ("expand", Self::EXPAND_FIELDS.to_string())])
             .send()
             .await?;
-        info!("fetch status {}", response.status().as_str());
+        debug!("fetch status {}", response.status().as_str());
         let json: serde_json::Value = serde_json::from_slice(&response.bytes().await?)?;
-        info!("fetch json {:#?}", json);
+        debug!("fetch json {:#?}", json);
 
         sleep(Duration::from_secs(1)).await;
 
@@ -143,7 +143,7 @@ pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
     debug!("parsing geocache");
     // this is pretty ugly, but more advanced serde scared me more
     let code = String::from(v["referenceCode"].as_str().ok_or(Error::JsonRaw)?);
-    info!("Parse geocache {}", code);
+    debug!("Parse geocache {}", code);
     let is_premium = v["isPremiumOnly"].as_bool().unwrap_or(false);
 
     if is_premium {

@@ -2,7 +2,7 @@ use std::{collections::HashSet, f64::consts::PI, fmt};
 
 use super::Coordinate;
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Tile {
     pub x: u32,
     pub y: u32,

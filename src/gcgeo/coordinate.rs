@@ -2,7 +2,7 @@ use std::{f64::consts::PI, fmt};
 
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Coordinate {
     pub lat: f64,
     pub lon: f64,

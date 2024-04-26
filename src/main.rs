@@ -5,16 +5,24 @@ use std::{
     collections::HashMap,
     fmt::Write,
 };
+use std::sync::{Arc, Condvar, Mutex};
 
+use futures::poll;
 use rocket::{Data, data::ToByteUnit, State};
+use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
 
 use gc::{Cache, Timestamped};
 use gc::groundspeak::GcCode;
 use gcgeo::{CacheType, Geocache};
 
+use crate::gc::groundspeak::Groundspeak;
+use crate::gcgeo::Track;
+use crate::job::{Job, JobQueue};
+
 mod gcgeo;
 mod gc;
+mod job;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -34,14 +42,15 @@ pub enum Error {
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
+    let jobs = JobQueue::new();
     let cache = Cache::new_lite().await?;
-    let jobs = HashMap::<String, String>::new();
 
     info!("Service starting up...");
+
     let _rocket = rocket::build()
-        .manage(cache)
         .manage(jobs)
-        .mount("/", routes![index, codes, fetch, track])
+        .manage(cache)
+        .mount("/", routes![index, codes, fetch, track, enqueue_task, query_task])
         .launch()
         .await?;
 
@@ -53,9 +62,69 @@ fn index() -> &'static str {
     "Hello, world!"
 }
 
+#[derive(Responder)]
+enum JobResult {
+    #[response(status = 303, content_type = "text/plain")]
+    Redirect(rocket::response::Redirect),
+    #[response(status = 200, content_type = "text/plain")]
+    Done(String),
+}
+
+// work in progress to replace /track and other methods
+#[post("/enqueue", data = "<data>")]
+async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
+    let data_stream = data.open(10.megabytes());
+    let reader = data_stream.into_bytes().await.unwrap();
+    let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
+    // ugh, there must be a nicer way, right?
+    let track2 = track.clone();
+    let track3 = track.clone();
+    let tiles = track.tiles;
+
+
+    let pre_filter = {
+        move |gc: &GcCode|
+            match &gc.approx_coord {
+                Some(coord) => track2.near(&coord) <= 100,
+                None => { true }
+            }
+    };
+    let post_filter = move |gc: &Geocache| is_active(gc) && is_quick_stop(gc) && track3.near(&gc.coord) <= 100;
+    let job = Arc::new(Job::new());
+    let job_for_result = job.clone();
+    let job_id = job.id.clone();
+    jobs.add(job.clone());
+    let handle = tokio::task::spawn(async move {
+        let cache = Cache::new_lite().await.unwrap();
+        job.process_filtered(tiles, &cache, pre_filter, post_filter).await;
+    });
+
+    // If everything is already cached, the job will finish very quickly, and we can immediately return the result
+    let timeout = tokio::time::Duration::from_secs(2);
+    let _ = tokio::time::timeout(timeout, handle).await;
+
+    if let Some(geocaches) = job_for_result.get_geocaches() {
+        // TODO: render the result based on accept header
+        Ok(JobResult::Done(format!("Discovered {} geocaches", geocaches.len())))
+    } else {
+        Ok(JobResult::Redirect(rocket::response::Redirect::to(format!("/job/{}", job_id))))
+    }
+}
+
+#[get("/job/<job_id>")]
+async fn query_task(job_id: &str, jobs: &State<JobQueue>) -> String {
+    let job = jobs.get(job_id).unwrap();
+    if let Some(geocaches) = job.get_geocaches() {
+        format!("Discovered {} geocaches", geocaches.len())
+    } else {
+        "Task not done yet".to_string()
+    }
+}
+
 #[get("/codes?<lat>&<lon>&<zoom>")]
-async fn codes(lat: f64, lon: f64, zoom: Option<u8>, cache: &State<Cache>) -> String {
+async fn codes(lat: f64, lon: f64, zoom: Option<u8>) -> String {
     let t = gcgeo::Tile::from_coordinates(lat, lon, zoom.unwrap_or(14));
+    let cache = Cache::new_lite().await.unwrap();
     match cache.discover(&t).await {
         Ok(Timestamped { data, ts: _ts }) => {
             format!("codes: {}", data.len())
@@ -68,7 +137,8 @@ async fn codes(lat: f64, lon: f64, zoom: Option<u8>, cache: &State<Cache>) -> St
 }
 
 #[get("/get/<code>")]
-async fn fetch(code: String, cache: &State<Cache>) -> String {
+async fn fetch(code: String) -> String {
+    let cache = Cache::new_lite().await.unwrap();
     let geocaches = cache.get(vec![code]).await.ok().unwrap();
     let geocache = geocaches.get(0).unwrap();
     info!("Geocache: {:?}", geocache);
@@ -78,8 +148,9 @@ async fn fetch(code: String, cache: &State<Cache>) -> String {
 
 
 #[post("/track", data = "<data>")]
-async fn track(data: Data<'_>, accept: &rocket::http::Accept, cache: &State<Cache>) -> Vec<u8> {
+async fn track(data: Data<'_>, accept: &rocket::http::Accept) -> Vec<u8> {
     info!("accept: {}", accept);
+    let cache = Cache::new_lite().await.unwrap();
     let data_stream = data.open(10.megabytes());
     let reader = data_stream.into_bytes().await.unwrap();
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();

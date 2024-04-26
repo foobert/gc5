@@ -15,7 +15,6 @@ pub struct Cache {
     db: sqlx::PgPool,
     groundspeak: Groundspeak,
     token_cache: AuthProvider,
-    jobs: HashMap<String, super::job::Job>,
 }
 
 #[derive(Error, Debug)]
@@ -48,7 +47,6 @@ impl Cache {
             db: pool,
             groundspeak,
             token_cache,
-            jobs: HashMap::new(),
         };
     }
 
@@ -61,14 +59,6 @@ impl Cache {
         s.token_cache.init().await?;
         Ok(s)
     }
-
-    /*
-    pub fn compute(foo: Arc<Mutex<Self>>, tiles: Vec<Tile>) -> Result<(), Error> {
-        let job = job::Job::new(foo.clone(), tiles);
-        foo.lock().unwrap().jobs.insert(job.id.clone(), job);
-        Ok(())
-    }
-    */
 
     pub async fn find_tile(&mut self, tile: &Tile) -> Result<Timestamped<Vec<Geocache>>, Error> {
         let result: Vec<Geocache> = vec![];

@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use super::Coordinate;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Geocache {
     pub code: String,
     pub name: String,
@@ -22,7 +22,7 @@ pub struct Geocache {
     pub logs: Vec<GeocacheLog>,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Clone)]
 pub enum ContainerSize {
     Nano,
     Micro,
@@ -81,7 +81,7 @@ impl ContainerSize {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Clone)]
 pub enum CacheType {
     Traditional,
     Multi,
@@ -126,14 +126,14 @@ impl CacheType {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct GeocacheLog {
     pub text: String,
     pub timestamp: String,
     pub log_type: LogType,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Clone)]
 pub enum LogType {
     Found,
     DidNotFind,

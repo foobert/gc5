@@ -4,6 +4,7 @@ use geo::{ClosestPoint, GeodesicDistance, LineString};
 
 use super::{Coordinate, Tile};
 
+#[derive(Debug, Clone)]
 pub struct Track {
     pub tiles: Vec<Tile>,
     pub waypoints: Vec<Coordinate>,

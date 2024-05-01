@@ -78,15 +78,18 @@ impl Job {
         let all_geocaches: Vec<Geocache> = cache.get(codes.clone()).await.unwrap();
         let selected = all_geocaches.into_iter().filter(|gc| post_filter(&gc)).collect();
 
-        let state = &mut self.state.lock().unwrap();
-        state.geocaches = selected;
-        self.set_message("Finished");
+        {
+            let state = &mut self.state.lock().unwrap();
+            state.geocaches = selected;
+            state.message = "Finished".to_string();
+            info!("Job {}: {}", self.id, "Finished");
+        }
     }
 
     fn set_message(&self, message: &str) {
         let mut state = self.state.lock().unwrap();
-        info!("Job {}: {}", self.id, message);
         state.message = message.to_string();
+        info!("Job {}: {}", self.id, message);
     }
 
     pub fn get_geocaches(&self) -> Option<Vec<Geocache>> {

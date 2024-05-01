@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::prelude::*;
 use log::{debug, error, info};
@@ -146,7 +146,7 @@ impl Cache {
                     }
                     if result.len() != codes.len() {
                         error!("got back less results, premium?");
-                        let expected_codes: HashSet<String> = HashSet::from_iter(codes.iter().map(|x| (*x.clone()).to_string()));
+                        let expected_codes: HashSet<String> = HashSet::from_iter(codes.into_iter().map(|x| (*x.clone()).to_string()));
                         let fetched_codes = HashSet::from_iter(result.iter().map(|x| x.code.clone()));
                         let missing_codes = expected_codes.difference(&fetched_codes);
 

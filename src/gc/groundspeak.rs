@@ -1,11 +1,9 @@
-use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use chrono::{NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use log::{debug, info};
 use rand::Rng;
-use serde::Deserialize;
 use thiserror::Error;
 use tokio::time::sleep;
 
@@ -132,7 +130,7 @@ impl Groundspeak {
 
         sleep(Duration::from_secs(1)).await;
 
-        let mut geocaches = json.as_array().ok_or(Error::JsonRaw)?.clone();
+        let geocaches = json.as_array().ok_or(Error::JsonRaw)?.clone();
         debug!("fetch geocaches {}", geocaches.len());
 
         Ok(geocaches)

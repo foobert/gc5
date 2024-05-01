@@ -1,10 +1,7 @@
 use std::collections::HashMap;
-use std::iter::Map;
 use std::sync::{Arc, Mutex};
 
-use log::debug;
-
-use crate::{Cache, is_active, is_quick_stop};
+use crate::Cache;
 use crate::gc::groundspeak::GcCode;
 use crate::gcgeo::{Geocache, Tile};
 
@@ -70,7 +67,7 @@ impl Job {
         let tile_len = tiles.len();
         for (index, tile) in tiles.iter().enumerate() {
             self.set_message(&format!("Discover tile {}/{}: {}", index + 1, tile_len, tile));
-            let mut tmp = cache.discover(&tile).await.unwrap();
+            let tmp = cache.discover(&tile).await.unwrap();
             tmp.data.into_iter().filter(|code| pre_filter(code)).for_each(|code| codes.push(code.code));
         }
 

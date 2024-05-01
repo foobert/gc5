@@ -1,22 +1,15 @@
 #[macro_use]
 extern crate rocket;
 
-use std::{
-    collections::HashMap,
-    fmt::Write,
-};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
-use futures::poll;
 use rocket::{Data, data::ToByteUnit, State};
-use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
 
 use gc::{Cache, Timestamped};
 use gc::groundspeak::GcCode;
 use gcgeo::{CacheType, Geocache};
 
-use crate::gc::groundspeak::Groundspeak;
 use crate::gcgeo::Track;
 use crate::job::{Job, JobQueue};
 
@@ -72,8 +65,6 @@ enum JobResult {
     Gpx(Vec<u8>),
     #[response(status = 200, content_type = "application/gpi")]
     Gpi(Vec<u8>),
-    #[response(status = 200, content_type = "text/plain")]
-    Done(String),
 }
 
 // work in progress to replace /track and other methods
@@ -223,7 +214,7 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept) -> Vec<u8> {
     let mut gccodes: Vec<GcCode> = Vec::new();
     for (i, tile) in tiles.iter().enumerate() {
         info!("Discover tile {}/{} {}", i + 1, &tiles.len(), tile);
-        let mut tmp = cache.discover(tile).await.unwrap();
+        let tmp = cache.discover(tile).await.unwrap();
         gccodes.append(&mut (tmp.data as Vec<GcCode>));
     }
     info!("Discovered {} geocaches", gccodes.len());

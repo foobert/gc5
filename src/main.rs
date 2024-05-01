@@ -66,19 +66,26 @@ fn index() -> &'static str {
 enum JobResult {
     #[response(status = 303, content_type = "text/plain")]
     Redirect(rocket::response::Redirect),
+    #[response(status = 200, content_type = "application/json")]
+    GeoJson(Vec<u8>),
+    #[response(status = 200, content_type = "application/gpx+xml")]
+    Gpx(Vec<u8>),
+    #[response(status = 200, content_type = "application/gpi")]
+    Gpi(Vec<u8>),
     #[response(status = 200, content_type = "text/plain")]
     Done(String),
 }
 
 // work in progress to replace /track and other methods
 #[post("/enqueue", data = "<data>")]
-async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
+async fn enqueue_task(data: Data<'_>, accept: &rocket::http::Accept, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
     let data_stream = data.open(10.megabytes());
     let reader = data_stream.into_bytes().await.unwrap();
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
     // ugh, there must be a nicer way, right?
     let track2 = track.clone();
     let track3 = track.clone();
+    let track4 = track.clone();
     let tiles = track.tiles;
 
 
@@ -104,20 +111,25 @@ async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResul
     let _ = tokio::time::timeout(timeout, handle).await;
 
     if let Some(geocaches) = job_for_result.get_geocaches() {
-        // TODO: render the result based on accept header
-        Ok(JobResult::Done(format!("Discovered {} geocaches", geocaches.len())))
+        info!("Job {} is already done", job_id);
+        match accept.preferred().sub().as_str() {
+            "gpx" => Ok(JobResult::Gpx(render_gpx(geocaches))),
+            "gpi" => Ok(JobResult::Gpi(render_gpi(geocaches))),
+            _ => Ok(JobResult::GeoJson(render_geojson(geocaches, Some(track4)))),
+        }
     } else {
+        info!("Job {} is still running", job_id);
         Ok(JobResult::Redirect(rocket::response::Redirect::to(format!("/job/{}", job_id))))
     }
 }
 
 #[get("/job/<job_id>")]
-async fn query_task(job_id: &str, jobs: &State<JobQueue>) -> String {
+async fn query_task(job_id: &str, accept: &rocket::http::Accept, jobs: &State<JobQueue>) -> Vec<u8> {
     let job = jobs.get(job_id).unwrap();
     if let Some(geocaches) = job.get_geocaches() {
-        format!("Discovered {} geocaches", geocaches.len())
+        render(geocaches, None, accept)
     } else {
-        "Task not done yet".to_string()
+        Vec::from("Task not done yet".as_bytes())
     }
 }
 
@@ -146,6 +158,58 @@ async fn fetch(code: String) -> String {
     serde_json::to_string(geocache).unwrap()
 }
 
+fn render(geocaches: Vec<Geocache>, track: Option<Track>, accept: &rocket::http::Accept) -> Vec<u8> {
+    match accept.preferred().sub().as_str() {
+        "gpx" => render_gpx(geocaches),
+        "gpi" => render_gpi(geocaches),
+        _ => render_geojson(geocaches, track),
+    }
+}
+
+fn render_gpx(geocaches: Vec<Geocache>) -> Vec<u8> {
+    let mut output: Vec<u8> = Vec::new();
+    gc::garmin::Garmin::gpx(geocaches, &CacheType::Traditional, &mut output)
+        .expect("gpx writing failed");
+    output
+}
+
+fn render_gpi(geocaches: Vec<Geocache>) -> Vec<u8> {
+    let mut output: Vec<u8> = Vec::new();
+    gc::garmin::Garmin::gpi(geocaches, &CacheType::Traditional, &mut output)
+        .expect("gpi writing failed");
+    output
+}
+
+fn render_geojson(geocaches: Vec<Geocache>, track: Option<Track>) -> Vec<u8> {
+    let mut features: Vec<geojson::Feature> = geocaches.iter().map(|gc| {
+        let mut properties = geojson::JsonObject::new();
+        properties.insert("name".to_string(), geojson::JsonValue::from(gc.code.clone()));
+        properties.insert("marker-color".to_string(), geojson::JsonValue::from("#000000"));
+        geojson::Feature {
+            properties: Some(properties),
+            geometry: Some(geojson::Geometry::new(geojson::Value::Point(vec![gc.coord.lon, gc.coord.lat]))),
+            bbox: None,
+            id: None,
+            foreign_members: None,
+        }
+    }).collect();
+    if let Some(track) = track {
+        let coordinates = track.waypoints.iter().map(|wp| vec![wp.lon, wp.lat]).collect();
+        features.push(geojson::Feature {
+            properties: None,
+            geometry: Some(geojson::Geometry::new(geojson::Value::LineString(coordinates))),
+            bbox: None,
+            id: None,
+            foreign_members: None,
+        });
+    }
+    let geojson = geojson::GeoJson::FeatureCollection(geojson::FeatureCollection {
+        features,
+        bbox: None,
+        foreign_members: None,
+    });
+    Vec::from(geojson.to_string().as_bytes())
+}
 
 #[post("/track", data = "<data>")]
 async fn track(data: Data<'_>, accept: &rocket::http::Accept) -> Vec<u8> {
@@ -181,81 +245,9 @@ async fn track(data: Data<'_>, accept: &rocket::http::Accept) -> Vec<u8> {
 
     info!("accept: {}", accept.preferred().sub());
     match accept.preferred().sub().as_str() {
-        "gpx" => {
-            let mut output: Vec<u8> = Vec::new();
-            let garmin = gc::garmin::Garmin::new(geocaches);
-            garmin
-                .gpx(&CacheType::Traditional, &mut output)
-                .expect("gpx writing failed");
-            output
-        }
-        "gpi" => {
-            let mut output: Vec<u8> = Vec::new();
-            let garmin = gc::garmin::Garmin::new(geocaches);
-            garmin
-                .gpi(&CacheType::Traditional, &mut output)
-                .expect("gpi writing failed");
-            output
-        }
-        _ => {
-            let mut geojson = String::new();
-            write!(
-                &mut geojson,
-                "{{\"type\": \"FeatureCollection\", \"features\": ["
-            )
-                .ok();
-            write!(
-                &mut geojson,
-                r#"{{
-        "type": "Feature",
-        "properties": {{}},
-        "geometry": {{
-          "coordinates": [
-    "#
-            )
-                .ok();
-            for (i, waypoint) in track.waypoints.iter().enumerate() {
-                if i > 0 {
-                    write!(&mut geojson, ", ").ok();
-                }
-                write!(&mut geojson, "[ {}, {} ]", waypoint.lon, waypoint.lat).ok();
-            }
-            write!(
-                &mut geojson,
-                r#"
-          ],
-          "type": "LineString"
-        }}
-      }},"#
-            )
-                .ok();
-            for geocache in geocaches {
-                write!(&mut geojson, ",").ok();
-                write!(
-                    &mut geojson,
-                    r#"{{
-            "type": "Feature",
-            "properties": {{"name":"{}", "marker-color":"{}"}},
-            "geometry": {{
-                "coordinates": [ {}, {} ],
-                "type": "Point"
-            }}
-        }}
-        "#,
-                    geocache.code,
-                    match geocache.cache_type {
-                        CacheType::Webcam => "#ff0000",
-                        CacheType::Earth => "#00ff00",
-                        _ => "#000000",
-                    },
-                    geocache.coord.lon,
-                    geocache.coord.lat
-                )
-                    .ok();
-            }
-            write!(&mut geojson, "]}}").ok();
-            Vec::from(geojson.as_bytes())
-        }
+        "gpx" => render_gpx(geocaches),
+        "gpi" => render_gpi(geocaches),
+        _ => render_geojson(geocaches, Some(track)),
     }
 }
 

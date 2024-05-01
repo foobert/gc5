@@ -10,22 +10,17 @@ use crate::gcgeo::{CacheType, Geocache};
 
 use super::cache::Error;
 
-pub struct Garmin {
-    geocaches: Vec<Geocache>,
-}
+pub struct Garmin {}
 
 impl Garmin {
-    pub fn new(geocaches: Vec<Geocache>) -> Self {
-        Self { geocaches }
-    }
-    pub fn gpx<W: Write>(&self, cache_type: &CacheType, writer: &mut W) -> Result<(), Error> {
+    pub fn gpx<W: Write>(geocaches: Vec<Geocache>, cache_type: &CacheType, writer: &mut W) -> Result<(), Error> {
         info!("Writing gpx");
         let mut gpx = gpx::Gpx::default();
         gpx.creator = Some(String::from("cachecache"));
         gpx.version = GpxVersion::Gpx11;
         gpx.waypoints.extend(
-            self.geocaches
-                .iter()
+            geocaches
+                .into_iter()
                 .filter(|gc| gc.cache_type == *cache_type)
                 .map(|gc| {
                     let mut waypoint = Waypoint::new(Point::new(gc.coord.lon, gc.coord.lat));
@@ -39,14 +34,14 @@ impl Garmin {
         Ok(())
     }
 
-    pub fn gpi<W: ?Sized>(&self, cache_type: &CacheType, writer: &mut W) -> Result<(), Error>
+    pub fn gpi<W: ?Sized>(geocaches: Vec<Geocache>, cache_type: &CacheType, writer: &mut W) -> Result<(), Error>
         where
             W: Write,
     {
         let mut gpx_file = NamedTempFile::new()?;
         let mut gpi_file = NamedTempFile::new()?;
         let image_file = NamedTempFile::new()?;
-        self.gpx(cache_type, &mut gpx_file)?;
+        Self::gpx(geocaches, cache_type, &mut gpx_file)?;
         info!(
             "Wrote {:?} to {}",
             cache_type,
@@ -80,10 +75,6 @@ impl Garmin {
         std::io::copy(&mut gpi_file, writer)?;
         info!("Copied {} to output", gpi_file.path().to_string_lossy());
         Ok(())
-    }
-
-    pub fn gpi_zip<W: Write>(&self, _: W) -> Result<(), Error> {
-        Err(Error::Unknown)
     }
 
     fn title(gc: &Geocache) -> String {

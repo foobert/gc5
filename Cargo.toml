@@ -25,3 +25,4 @@ assert_approx_eq = "1.*"
 geo = "*"
 gpx = "*"
 serde = { version = "1.*", features = ["derive"] }
+geojson = "0.24.1"

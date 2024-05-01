@@ -256,9 +256,12 @@ fn is_active(gc: &Geocache) -> bool {
 }
 
 fn is_quick_stop(gc: &Geocache) -> bool {
-    match gc.cache_type {
+    let quick_type = match gc.cache_type {
         // CacheType::Traditional | CacheType::Earth | CacheType::Webcam => true,
         CacheType::Traditional => true,
         _ => false,
-    }
+    };
+    let quick_diff_terrain = gc.difficulty <= 3.0 && gc.terrain <= 3.0;
+
+    quick_type && quick_diff_terrain
 }

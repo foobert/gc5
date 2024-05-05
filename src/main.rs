@@ -120,7 +120,7 @@ async fn query_task(job_id: &str, accept: &rocket::http::Accept, jobs: &State<Jo
     if let Some(geocaches) = job.get_geocaches() {
         render(geocaches, None, accept)
     } else {
-        Vec::from("Task not done yet".as_bytes())
+        Vec::from(job.get_message().as_bytes())
     }
 }
 

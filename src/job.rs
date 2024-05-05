@@ -89,6 +89,11 @@ impl Job {
         info!("Job {}: {}", self.id, message);
     }
 
+    pub fn get_message(&self) -> String {
+        let state = &self.state.lock().unwrap();
+        state.message.clone()
+    }
+
     pub fn get_geocaches(&self) -> Option<Vec<Geocache>> {
         let state = &self.state.lock().unwrap();
         let geocaches = &state.geocaches;

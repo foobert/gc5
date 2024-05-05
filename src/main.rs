@@ -2,7 +2,6 @@
 extern crate rocket;
 
 use std::str::FromStr;
-use std::sync::Arc;
 
 use geojson::GeoJson;
 use rocket::{Data, data::ToByteUnit, State};
@@ -12,12 +11,10 @@ use rocket::response::Responder;
 use rocket_dyn_templates::{context, Template};
 use thiserror::Error;
 
-use gc::{Cache, Timestamped};
-use gc::groundspeak::GcCode;
+use gc::Cache;
 use gcgeo::{CacheType, Geocache};
 
-use crate::gcgeo::Track;
-use crate::job::{Job, JobQueue};
+use crate::job::JobQueue;
 use crate::track::compute_track;
 
 mod gcgeo;

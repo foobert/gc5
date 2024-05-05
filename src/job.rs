@@ -36,8 +36,6 @@ pub struct Job {
 
 struct JobState {
     message: String,
-    progress: u8,
-    total: u8,
     geocaches: Vec<Geocache>,
 }
 
@@ -45,8 +43,6 @@ impl JobState {
     fn new() -> Self {
         Self {
             message: String::new(),
-            progress: 0,
-            total: 0,
             geocaches: Vec::new(),
         }
     }

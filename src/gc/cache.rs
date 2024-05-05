@@ -67,18 +67,6 @@ impl Cache {
         Ok(Timestamped::now(result))
     }
 
-    pub async fn find(
-        &self,
-        top_left: &Coordinate,
-        bottom_right: &Coordinate,
-        sloppy: bool,
-    ) -> Result<Vec<Geocache>, Error> {
-        info!("find {} {} {}", top_left, bottom_right, sloppy);
-        // translate into tiles, then discover tiles and fetch them
-        // optionally: filter afterwards to make sure all gcs are within bounds
-        Err(Error::Unknown)
-    }
-
     pub async fn get(&self, codes: Vec<String>) -> Result<Vec<Geocache>, Error> {
         let mut cache_hit: Vec<Geocache> = vec![];
         let mut cache_miss: Vec<String> = vec![];

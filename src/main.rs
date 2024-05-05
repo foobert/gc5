@@ -155,7 +155,7 @@ struct UploadForm<'r> {
 #[get("/jobs")]
 async fn list_jobs(jobs: &State<JobQueue>) -> Template {
     let mut jobs_for_context = Vec::new();
-    for (job) in jobs.list().iter() {
+    for job in jobs.list().iter() {
         jobs_for_context.push((job.id.clone(), job.get_message()));
     }
     Template::render("jobs", context! { jobs: jobs_for_context })

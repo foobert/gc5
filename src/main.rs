@@ -4,8 +4,11 @@ extern crate rocket;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use geojson::GeoJson;
 use rocket::{Data, data::ToByteUnit, State};
 use rocket::form::Form;
+use rocket::http::Accept;
+use rocket::response::Responder;
 use rocket_dyn_templates::{context, Template};
 use thiserror::Error;
 
@@ -15,10 +18,12 @@ use gcgeo::{CacheType, Geocache};
 
 use crate::gcgeo::Track;
 use crate::job::{Job, JobQueue};
+use crate::track::compute_track;
 
 mod gcgeo;
 mod gc;
 mod job;
+mod track;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -46,7 +51,7 @@ async fn main() -> Result<(), Error> {
     let _rocket = rocket::build()
         .manage(jobs)
         .manage(cache)
-        .mount("/", routes![index, list_jobs, upload, codes, fetch, track, enqueue_task, query_task, query_task_gpi])
+        .mount("/", routes![index, list_jobs, upload, fetch, enqueue_task, query_task, query_task_gpi])
         .attach(Template::fairing())
         .launch()
         .await?;
@@ -55,192 +60,62 @@ async fn main() -> Result<(), Error> {
 }
 
 #[get("/")]
-fn index() -> Template {
-    Template::render("index", context! { field: "value" })
-}
-
-
-#[derive(Responder)]
-enum JobResult {
-    #[response(status = 303, content_type = "text/plain")]
-    Redirect(rocket::response::Redirect),
-    #[response(status = 200, content_type = "application/json")]
-    GeoJson(Vec<u8>),
-    #[response(status = 200, content_type = "application/gpx+xml")]
-    Gpx(Vec<u8>),
-    #[response(status = 200, content_type = "application/gpi")]
-    Gpi(Vec<u8>),
-}
-
-// work in progress to replace /track and other methods
-async fn enqueue_task2<R: std::io::Read>(io: R, jobs: &State<JobQueue>) -> Arc<Job> {
-    let track = gcgeo::Track::from_gpx(io).unwrap();
-    // ugh, there must be a nicer way, right?
-    let track2 = track.clone();
-    let track3 = track.clone();
-    let track4 = track.clone();
-    let tiles = track.tiles;
-
-    let pre_filter = {
-        move |gc: &GcCode|
-            match &gc.approx_coord {
-                Some(coord) => track2.near(&coord) <= 100,
-                None => { true }
-            }
-    };
-    let post_filter = move |gc: &Geocache| is_active(gc) && is_quick_stop(gc) && track3.near(&gc.coord) <= 100;
-    let job = Arc::new(Job::new());
-    let job_for_result = job.clone();
-    let job_id = job.id.clone();
-    jobs.add(job.clone());
-    let handle = tokio::task::spawn(async move {
-        let cache = Cache::new_lite().await.unwrap();
-        job.process_filtered(tiles, &cache, pre_filter, post_filter).await;
-    });
-
-    // If everything is already cached, the job will finish very quickly, and we can immediately return the result
-    let timeout = tokio::time::Duration::from_secs(2);
-    let _ = tokio::time::timeout(timeout, handle).await;
-
-    job_for_result
-}
-
-#[post("/enqueue", data = "<data>")]
-async fn enqueue_task(data: Data<'_>, accept: &rocket::http::Accept, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
-    let data_stream = data.open(10.megabytes());
-    let reader = data_stream.into_bytes().await.unwrap();
-    let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
-    // ugh, there must be a nicer way, right?
-    let track2 = track.clone();
-    let track3 = track.clone();
-    let track4 = track.clone();
-    let tiles = track.tiles;
-
-
-    let pre_filter = {
-        move |gc: &GcCode|
-            match &gc.approx_coord {
-                Some(coord) => track2.near(&coord) <= 100,
-                None => { true }
-            }
-    };
-    let post_filter = move |gc: &Geocache| is_active(gc) && is_quick_stop(gc) && track3.near(&gc.coord) <= 100;
-    let job = Arc::new(Job::new());
-    let job_for_result = job.clone();
-    let job_id = job.id.clone();
-    jobs.add(job.clone());
-    let handle = tokio::task::spawn(async move {
-        let cache = Cache::new_lite().await.unwrap();
-        job.process_filtered(tiles, &cache, pre_filter, post_filter).await;
-    });
-
-    // If everything is already cached, the job will finish very quickly, and we can immediately return the result
-    let timeout = tokio::time::Duration::from_secs(2);
-    let _ = tokio::time::timeout(timeout, handle).await;
-
-    if let Some(geocaches) = job_for_result.get_geocaches() {
-        info!("Job {} is already done", job_id);
-        match accept.preferred().sub().as_str() {
-            "gpx" => Ok(JobResult::Gpx(render_gpx(geocaches))),
-            "gpi" => Ok(JobResult::Gpi(render_gpi(geocaches))),
-            _ => Ok(JobResult::GeoJson(render_geojson(geocaches, Some(track4)))),
-        }
-    } else {
-        info!("Job {} is still running", job_id);
-        Ok(JobResult::Redirect(rocket::response::Redirect::to(format!("/job/{}", job_id))))
-    }
-}
-
-#[derive(FromForm)]
-struct UploadForm<'r> {
-    file: &'r [u8],
-}
-
-#[post("/jobs", data = "<data>")]
-async fn upload(data: Form<UploadForm<'_>>, jobs: &State<JobQueue>) -> Template {
-    //enqueue_task(data, &rocket::http::Accept::from_str("application/json").unwrap(), jobs).await.unwrap();
-    enqueue_task2(data.file, jobs).await;
+async fn index(jobs: &State<JobQueue>) -> Template {
     list_jobs(jobs).await
+    // Template::render("index", context! { field: "value" })
 }
 
-#[get("/jobs")]
-async fn list_jobs(jobs: &State<JobQueue>) -> Template {
-    let mut jobs_for_context = Vec::new();
-    for (job) in jobs.list().iter() {
-        jobs_for_context.push((job.id.clone(), job.get_message()));
-    }
-    Template::render("jobs", context! { jobs: jobs_for_context })
+enum JobResult {
+    Complete(Vec<Geocache>, Option<Accept>),
+    Incomplete(String),
 }
 
-#[get("/jobs/<job_id>")]
-async fn query_task(job_id: &str, accept: &rocket::http::Accept, jobs: &State<JobQueue>) -> Vec<u8> {
-    let job = jobs.get(job_id).unwrap();
-    if let Some(geocaches) = job.get_geocaches() {
-        render(geocaches, None, accept)
-    } else {
-        Vec::from(job.get_message().as_bytes())
-    }
-}
-
-#[get("/jobs/<job_id>/gpi")]
-async fn query_task_gpi(job_id: &str, jobs: &State<JobQueue>) -> Vec<u8> {
-    let job = jobs.get(job_id).unwrap();
-    if let Some(geocaches) = job.get_geocaches() {
-        render(geocaches, None, &rocket::http::Accept::from_str("application/gpi").unwrap())
-    } else {
-        Vec::from(job.get_message().as_bytes())
-    }
-}
-
-#[get("/codes?<lat>&<lon>&<zoom>")]
-async fn codes(lat: f64, lon: f64, zoom: Option<u8>) -> String {
-    let t = gcgeo::Tile::from_coordinates(lat, lon, zoom.unwrap_or(14));
-    let cache = Cache::new_lite().await.unwrap();
-    match cache.discover(&t).await {
-        Ok(Timestamped { data, ts: _ts }) => {
-            format!("codes: {}", data.len())
+impl<'a> Responder<'a, 'static> for JobResult {
+    fn respond_to(self, req: &'a rocket::Request<'_>) -> rocket::response::Result<'static> {
+        match self {
+            JobResult::Complete(data, forced_accept) => {
+                let json = rocket::http::Accept::JSON;
+                let accept = forced_accept.as_ref().or(req.accept()).unwrap_or(&json);
+                match accept.preferred().sub().as_str() {
+                    "gpx" => {
+                        let mut output: Vec<u8> = Vec::new();
+                        gc::garmin::Garmin::gpx(data, &CacheType::Traditional, &mut output)
+                            .expect("gpx writing failed");
+                        rocket::response::Response::build()
+                            .header(rocket::http::ContentType::XML)
+                            .sized_body(output.len(), std::io::Cursor::new(output))
+                            .ok()
+                    }
+                    "gpi" => {
+                        let mut output: Vec<u8> = Vec::new();
+                        gc::garmin::Garmin::gpi(data, &CacheType::Traditional, &mut output)
+                            .expect("gpi writing failed");
+                        rocket::response::Response::build()
+                            .header(rocket::http::ContentType::parse_flexible("application/gpi").unwrap())
+                            .sized_body(output.len(), std::io::Cursor::new(output))
+                            .ok()
+                    }
+                    _ => {
+                        let json = bundle_geojson(data).to_string();
+                        rocket::response::Response::build()
+                            .header(rocket::http::ContentType::Plain)
+                            .sized_body(json.len(), std::io::Cursor::new(json))
+                            .ok()
+                    }
+                }
+            }
+            JobResult::Incomplete(message) => {
+                rocket::response::Response::build()
+                    .header(rocket::http::ContentType::Plain)
+                    .sized_body(message.len(), std::io::Cursor::new(message))
+                    .ok()
+            }
         }
-        Err(err) => {
-            error!("Error: {:?}", err);
-            err.to_string()
-        }
     }
 }
 
-#[get("/get/<code>")]
-async fn fetch(code: String) -> String {
-    let cache = Cache::new_lite().await.unwrap();
-    let geocaches = cache.get(vec![code]).await.ok().unwrap();
-    let geocache = geocaches.get(0).unwrap();
-    info!("Geocache: {:?}", geocache);
-    // format!("{}", geocache)
-    serde_json::to_string(geocache).unwrap()
-}
-
-fn render(geocaches: Vec<Geocache>, track: Option<Track>, accept: &rocket::http::Accept) -> Vec<u8> {
-    match accept.preferred().sub().as_str() {
-        "gpx" => render_gpx(geocaches),
-        "gpi" => render_gpi(geocaches),
-        _ => render_geojson(geocaches, track),
-    }
-}
-
-fn render_gpx(geocaches: Vec<Geocache>) -> Vec<u8> {
-    let mut output: Vec<u8> = Vec::new();
-    gc::garmin::Garmin::gpx(geocaches, &CacheType::Traditional, &mut output)
-        .expect("gpx writing failed");
-    output
-}
-
-fn render_gpi(geocaches: Vec<Geocache>) -> Vec<u8> {
-    let mut output: Vec<u8> = Vec::new();
-    gc::garmin::Garmin::gpi(geocaches, &CacheType::Traditional, &mut output)
-        .expect("gpi writing failed");
-    output
-}
-
-fn render_geojson(geocaches: Vec<Geocache>, track: Option<Track>) -> Vec<u8> {
-    let mut features: Vec<geojson::Feature> = geocaches.iter().map(|gc| {
+fn bundle_geojson(data: Vec<Geocache>) -> GeoJson {
+    let features: Vec<geojson::Feature> = data.iter().map(|gc| {
         let mut properties = geojson::JsonObject::new();
         properties.insert("name".to_string(), geojson::JsonValue::from(gc.code.clone()));
         properties.insert("marker-color".to_string(), geojson::JsonValue::from("#000000"));
@@ -252,75 +127,76 @@ fn render_geojson(geocaches: Vec<Geocache>, track: Option<Track>) -> Vec<u8> {
             foreign_members: None,
         }
     }).collect();
-    if let Some(track) = track {
-        let coordinates = track.waypoints.iter().map(|wp| vec![wp.lon, wp.lat]).collect();
-        features.push(geojson::Feature {
-            properties: None,
-            geometry: Some(geojson::Geometry::new(geojson::Value::LineString(coordinates))),
-            bbox: None,
-            id: None,
-            foreign_members: None,
-        });
-    }
-    let geojson = geojson::GeoJson::FeatureCollection(geojson::FeatureCollection {
+    GeoJson::FeatureCollection(geojson::FeatureCollection {
         features,
         bbox: None,
         foreign_members: None,
-    });
-    Vec::from(geojson.to_string().as_bytes())
+    })
 }
 
 #[post("/track", data = "<data>")]
-async fn track(data: Data<'_>, accept: &rocket::http::Accept) -> Vec<u8> {
-    info!("accept: {}", accept);
-    let cache = Cache::new_lite().await.unwrap();
+async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
     let data_stream = data.open(10.megabytes());
     let reader = data_stream.into_bytes().await.unwrap();
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
-    let tiles = cache.tracks(reader.as_slice()).await.unwrap();
-    info!("Track resolved into {} tiles", &tiles.len());
-    let mut gccodes: Vec<GcCode> = Vec::new();
-    for (i, tile) in tiles.iter().enumerate() {
-        info!("Discover tile {}/{} {}", i + 1, &tiles.len(), tile);
-        let tmp = cache.discover(tile).await.unwrap();
-        gccodes.append(&mut (tmp.data as Vec<GcCode>));
-    }
-    info!("Discovered {} geocaches", gccodes.len());
-    let near_codes: Vec<String> = gccodes.into_iter().filter(|gc| {
-        match &gc.approx_coord {
-            Some(coord) => track.near(coord) <= 100,
-            None => { true }
-        }
-    }).map(|gc| gc.code).collect();
+    let job = compute_track(track, jobs.inner()).await;
 
-    info!("Prefiltered {} geocaches", near_codes.len());
-    let all_geocaches: Vec<Geocache> = cache.get(near_codes).await.unwrap();
-    let geocaches: Vec<Geocache> = all_geocaches
-        .into_iter()
-        .filter(|gc| is_active(&gc))
-        .filter(|gc| is_quick_stop(gc))
-        .filter(|gc| track.near(&gc.coord) <= 100)
-        .collect();
-
-    info!("accept: {}", accept.preferred().sub());
-    match accept.preferred().sub().as_str() {
-        "gpx" => render_gpx(geocaches),
-        "gpi" => render_gpi(geocaches),
-        _ => render_geojson(geocaches, Some(track)),
+    if let Some(geocaches) = job.get_geocaches() {
+        info!("Job {} is already done", job.id);
+        Ok(JobResult::Complete(geocaches, None))
+    } else {
+        info!("Job {} is still running", job.id);
+        Ok(JobResult::Incomplete(job.get_message()))
     }
 }
 
-fn is_active(gc: &Geocache) -> bool {
-    !gc.is_premium && gc.available && !gc.archived
+#[derive(FromForm)]
+struct UploadForm<'r> {
+    file: &'r [u8],
 }
 
-fn is_quick_stop(gc: &Geocache) -> bool {
-    let quick_type = match gc.cache_type {
-        // CacheType::Traditional | CacheType::Earth | CacheType::Webcam => true,
-        CacheType::Traditional => true,
-        _ => false,
-    };
-    let quick_diff_terrain = gc.difficulty <= 3.0 && gc.terrain <= 3.0;
+#[get("/jobs")]
+async fn list_jobs(jobs: &State<JobQueue>) -> Template {
+    let mut jobs_for_context = Vec::new();
+    for (job) in jobs.list().iter() {
+        jobs_for_context.push((job.id.clone(), job.get_message()));
+    }
+    Template::render("jobs", context! { jobs: jobs_for_context })
+}
 
-    quick_type && quick_diff_terrain
+#[post("/jobs", data = "<data>")]
+async fn upload(data: Form<UploadForm<'_>>, jobs: &State<JobQueue>) -> Template {
+    let track = gcgeo::Track::from_gpx(data.file).unwrap();
+    compute_track(track, jobs.inner()).await;
+    list_jobs(jobs).await
+}
+
+#[get("/jobs/<job_id>")]
+async fn query_task(job_id: &str, jobs: &State<JobQueue>) -> JobResult {
+    let job = jobs.get(job_id).unwrap();
+    if let Some(geocaches) = job.get_geocaches() {
+        JobResult::Complete(geocaches, None)
+    } else {
+        JobResult::Incomplete(job.get_message())
+    }
+}
+
+#[get("/jobs/<job_id>/gpi")]
+async fn query_task_gpi(job_id: &str, jobs: &State<JobQueue>) -> JobResult {
+    let job = jobs.get(job_id).unwrap();
+    if let Some(geocaches) = job.get_geocaches() {
+        JobResult::Complete(geocaches, Some(Accept::from_str("application/gpi").unwrap()))
+    } else {
+        JobResult::Incomplete(job.get_message())
+    }
+}
+
+// for debugging, needed?
+#[get("/geocache/<code>")]
+async fn fetch(code: String) -> String {
+    let cache = Cache::new_lite().await.unwrap();
+    let geocaches = cache.get(vec![code]).await.ok().unwrap();
+    let geocache = geocaches.get(0).unwrap();
+    info!("Geocache: {:?}", geocache);
+    serde_json::to_string(geocache).unwrap()
 }

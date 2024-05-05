@@ -1,9 +1,12 @@
 #[macro_use]
 extern crate rocket;
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use rocket::{Data, data::ToByteUnit, State};
+use rocket::form::Form;
+use rocket_dyn_templates::{context, Template};
 use thiserror::Error;
 
 use gc::{Cache, Timestamped};
@@ -43,7 +46,8 @@ async fn main() -> Result<(), Error> {
     let _rocket = rocket::build()
         .manage(jobs)
         .manage(cache)
-        .mount("/", routes![index, codes, fetch, track, enqueue_task, query_task])
+        .mount("/", routes![index, list_jobs, upload, codes, fetch, track, enqueue_task, query_task, query_task_gpi])
+        .attach(Template::fairing())
         .launch()
         .await?;
 
@@ -51,9 +55,10 @@ async fn main() -> Result<(), Error> {
 }
 
 #[get("/")]
-fn index() -> &'static str {
-    "Hello, world!"
+fn index() -> Template {
+    Template::render("index", context! { field: "value" })
 }
+
 
 #[derive(Responder)]
 enum JobResult {
@@ -68,6 +73,38 @@ enum JobResult {
 }
 
 // work in progress to replace /track and other methods
+async fn enqueue_task2<R: std::io::Read>(io: R, jobs: &State<JobQueue>) -> Arc<Job> {
+    let track = gcgeo::Track::from_gpx(io).unwrap();
+    // ugh, there must be a nicer way, right?
+    let track2 = track.clone();
+    let track3 = track.clone();
+    let track4 = track.clone();
+    let tiles = track.tiles;
+
+    let pre_filter = {
+        move |gc: &GcCode|
+            match &gc.approx_coord {
+                Some(coord) => track2.near(&coord) <= 100,
+                None => { true }
+            }
+    };
+    let post_filter = move |gc: &Geocache| is_active(gc) && is_quick_stop(gc) && track3.near(&gc.coord) <= 100;
+    let job = Arc::new(Job::new());
+    let job_for_result = job.clone();
+    let job_id = job.id.clone();
+    jobs.add(job.clone());
+    let handle = tokio::task::spawn(async move {
+        let cache = Cache::new_lite().await.unwrap();
+        job.process_filtered(tiles, &cache, pre_filter, post_filter).await;
+    });
+
+    // If everything is already cached, the job will finish very quickly, and we can immediately return the result
+    let timeout = tokio::time::Duration::from_secs(2);
+    let _ = tokio::time::timeout(timeout, handle).await;
+
+    job_for_result
+}
+
 #[post("/enqueue", data = "<data>")]
 async fn enqueue_task(data: Data<'_>, accept: &rocket::http::Accept, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
     let data_stream = data.open(10.megabytes());
@@ -114,11 +151,42 @@ async fn enqueue_task(data: Data<'_>, accept: &rocket::http::Accept, jobs: &Stat
     }
 }
 
-#[get("/job/<job_id>")]
+#[derive(FromForm)]
+struct UploadForm<'r> {
+    file: &'r [u8],
+}
+
+#[post("/jobs", data = "<data>")]
+async fn upload(data: Form<UploadForm<'_>>, jobs: &State<JobQueue>) -> Template {
+    //enqueue_task(data, &rocket::http::Accept::from_str("application/json").unwrap(), jobs).await.unwrap();
+    enqueue_task2(data.file, jobs).await;
+    list_jobs(jobs).await
+}
+
+#[get("/jobs")]
+async fn list_jobs(jobs: &State<JobQueue>) -> Template {
+    let mut jobs_for_context = Vec::new();
+    for (job) in jobs.list().iter() {
+        jobs_for_context.push((job.id.clone(), job.get_message()));
+    }
+    Template::render("jobs", context! { jobs: jobs_for_context })
+}
+
+#[get("/jobs/<job_id>")]
 async fn query_task(job_id: &str, accept: &rocket::http::Accept, jobs: &State<JobQueue>) -> Vec<u8> {
     let job = jobs.get(job_id).unwrap();
     if let Some(geocaches) = job.get_geocaches() {
         render(geocaches, None, accept)
+    } else {
+        Vec::from(job.get_message().as_bytes())
+    }
+}
+
+#[get("/jobs/<job_id>/gpi")]
+async fn query_task_gpi(job_id: &str, jobs: &State<JobQueue>) -> Vec<u8> {
+    let job = jobs.get(job_id).unwrap();
+    if let Some(geocaches) = job.get_geocaches() {
+        render(geocaches, None, &rocket::http::Accept::from_str("application/gpi").unwrap())
     } else {
         Vec::from(job.get_message().as_bytes())
     }

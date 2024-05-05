@@ -1,0 +1,2 @@
+[default]
+limits = { form = "1 MiB", json = "1 MiB", string = "1 MiB", bytes = "1 MiB" }

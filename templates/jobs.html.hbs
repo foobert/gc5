@@ -1,0 +1,16 @@
+<html>
+<body>
+<form action="/jobs" method="post" enctype="multipart/form-data">
+    <input type="file" name="file">
+    <input type="submit" value="Upload">
+</form>
+
+<ul>
+    {{#each jobs}}
+        <li>
+            {{this.0}} {{this.1}}, <a href="jobs/{{this.0}}/gpi">GPI</a>
+        </li>
+    {{/each}}
+</ul>
+</body>
+</html>

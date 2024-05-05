@@ -23,6 +23,10 @@ impl JobQueue {
     pub fn get(&self, id: &str) -> Option<Arc<Job>> {
         self.jobs.lock().unwrap().get(id).cloned()
     }
+
+    pub fn list(&self) -> Vec<Arc<Job>> {
+        self.jobs.lock().unwrap().values().cloned().collect()
+    }
 }
 
 pub struct Job {

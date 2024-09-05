@@ -15,9 +15,8 @@ pub struct UtfGrid {
 #[derive(Deserialize, Debug)]
 struct DataObject {
     i: String, // the actual GC code
-    // n would be the geocache name, but we don't care
+               // n would be the geocache name, but we don't care
 }
-
 
 impl UtfGrid {
     pub fn width(&self) -> usize {
@@ -28,13 +27,19 @@ impl UtfGrid {
         self.grid.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(&String, &String)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
         self.data.iter().map(|(k, v)| (k, &v[0].i))
     }
 
     fn extract_x_y(key: &str) -> (u8, u8) {
         // or regex?
-        let parts: Vec<&str> = key.strip_prefix('(').unwrap_or(key).strip_suffix(')').unwrap_or(key).split(',').collect();
+        let parts: Vec<&str> = key
+            .strip_prefix('(')
+            .unwrap_or(key)
+            .strip_suffix(')')
+            .unwrap_or(key)
+            .split(',')
+            .collect();
         let x = parts[0].trim().parse::<u8>().unwrap();
         let y = parts[1].trim().parse::<u8>().unwrap();
         (x, y)
@@ -48,20 +53,25 @@ impl UtfGrid {
         // collect all gc codes and their x/y positions in the grid
         let mut gccodes_with_offset = HashMap::new();
         for ((x, y), gccode) in self.into_iter() {
-            let entry = gccodes_with_offset.entry(gccode).or_insert(MinMax::new(x, y));
+            let entry = gccodes_with_offset
+                .entry(gccode)
+                .or_insert(MinMax::new(x, y));
             entry.update(x, y);
         }
 
         // convert x/y positions into coordinates
-        let gccodes = gccodes_with_offset.iter().map(|(code, value)| {
-            let x = value.mid_x() / x_size as f64;
-            let y = value.mid_y() / y_size as f64;
-            let coord = tile.utf_grid_offset(x, y);
-            GcCode {
-                code: code.to_string(),
-                approx_coord: Some(coord),
-            }
-        }).collect();
+        let gccodes = gccodes_with_offset
+            .iter()
+            .map(|(code, value)| {
+                let x = value.mid_x() / x_size as f64;
+                let y = value.mid_y() / y_size as f64;
+                let coord = tile.utf_grid_offset(x, y);
+                GcCode {
+                    code: code.to_string(),
+                    approx_coord: Some(coord),
+                }
+            })
+            .collect();
 
         Ok(gccodes)
     }
@@ -72,7 +82,8 @@ impl IntoIterator for UtfGrid {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.data.into_iter()
+        self.data
+            .into_iter()
             .filter(|(_, v)| v.len() == 1)
             .map(|(k, v)| (Self::extract_x_y(&k), v[0].i.clone()))
             .collect::<Vec<Self::Item>>()
@@ -112,4 +123,3 @@ impl MinMax {
         (self.max_y + self.min_y) as f64 / 2.0
     }
 }
-

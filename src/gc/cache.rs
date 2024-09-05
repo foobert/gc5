@@ -2,13 +2,13 @@ use std::collections::HashSet;
 
 use chrono::prelude::*;
 use log::{debug, error, info};
-use sqlx::{Executor, Row};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::{Executor, Row};
 use thiserror::Error;
 
 use crate::gcgeo::{Coordinate, Geocache, Tile, Track};
 
-use super::groundspeak::{BATCH_SIZE, GcCode, GcCodes, Groundspeak, parse};
+use super::groundspeak::{parse, GcCode, GcCodes, Groundspeak, BATCH_SIZE};
 use super::tokencache::AuthProvider;
 
 pub struct Cache {
@@ -43,11 +43,11 @@ impl Cache {
     pub fn new(pool: sqlx::PgPool) -> Self {
         let groundspeak = Groundspeak::new();
         let token_cache = AuthProvider::new(pool.clone());
-        return Self {
+        Self {
             db: pool,
             groundspeak,
             token_cache,
-        };
+        }
     }
 
     pub async fn new_lite() -> Result<Self, Error> {
@@ -63,7 +63,8 @@ impl Cache {
     pub async fn find_tile(&mut self, tile: &Tile) -> Result<Timestamped<Vec<Geocache>>, Error> {
         let result: Vec<Geocache> = vec![];
         let codes = self.discover(tile).await?;
-        self.get(codes.data.iter().map(|x| x.code.clone()).collect()).await?;
+        self.get(codes.data.iter().map(|x| x.code.clone()).collect())
+            .await?;
         Ok(Timestamped::now(result))
     }
 
@@ -110,7 +111,11 @@ impl Cache {
              */
 
             if fetched.len() < cache_miss.len() {
-                error!("Got back less than the expected number of geocaches {} < {}", fetched.len(), cache_miss.len());
+                error!(
+                    "Got back less than the expected number of geocaches {} < {}",
+                    fetched.len(),
+                    cache_miss.len()
+                );
                 // return Err(Error::Geocaching);
             }
             cache_hit.append(&mut fetched);
@@ -134,8 +139,10 @@ impl Cache {
                     }
                     if result.len() != codes.len() {
                         error!("got back less results, premium?");
-                        let expected_codes: HashSet<String> = HashSet::from_iter(codes.into_iter().map(|x| (*x.clone()).to_string()));
-                        let fetched_codes = HashSet::from_iter(result.iter().map(|x| x.code.clone()));
+                        let expected_codes: HashSet<String> =
+                            HashSet::from_iter(codes.into_iter().map(|x| (*x.clone()).to_string()));
+                        let fetched_codes =
+                            HashSet::from_iter(result.iter().map(|x| x.code.clone()));
                         let missing_codes = expected_codes.difference(&fetched_codes);
 
                         for x in missing_codes {
@@ -148,7 +155,10 @@ impl Cache {
                     return Ok(result);
                 }
                 Err(e) => {
-                    error!("Unable to fetch geocaches from Groundspeak, refreshing token {:?}", e);
+                    error!(
+                        "Unable to fetch geocaches from Groundspeak, refreshing token {:?}",
+                        e
+                    );
                     self.token_cache.refresh().await?;
                     attempts += 1;
                 }
@@ -157,9 +167,10 @@ impl Cache {
         Err(Error::Geocaching)
     }
 
-
     async fn save_geocache(&self, geocache: serde_json::Value) -> Result<Geocache, Error> {
-        let code = geocache["referenceCode"].as_str().ok_or(Error::Geocaching)?;
+        let code = geocache["referenceCode"]
+            .as_str()
+            .ok_or(Error::Geocaching)?;
         info!("Save {}", code);
         sqlx::query("INSERT INTO geocaches (id, raw, ts) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET raw = $2::JSON, ts = $3")
             .bind(&code)
@@ -179,7 +190,11 @@ impl Cache {
             }
         }
     }
-    async fn load_geocache_err(&self, code: &String, cutoff: &DateTime<Utc>) -> Result<Option<Geocache>, Error> {
+    async fn load_geocache_err(
+        &self,
+        code: &String,
+        cutoff: &DateTime<Utc>,
+    ) -> Result<Option<Geocache>, Error> {
         let json_result: Option<sqlx::postgres::PgRow> =
             sqlx::query("SELECT raw::VARCHAR FROM geocaches where id = $1 and ts >= $2")
                 .bind(code)
@@ -210,10 +225,7 @@ impl Cache {
                 let ts: DateTime<Utc> = row.get(0);
                 debug!("already have a tile from {}", ts);
                 let codes = self.load_gccodes(tile).await?;
-                Ok(Timestamped {
-                    ts,
-                    data: codes,
-                })
+                Ok(Timestamped { ts, data: codes })
             }
             None => {
                 let codes = self.groundspeak.discover(&tile).await?;
@@ -228,27 +240,31 @@ impl Cache {
             .bind(tile.quadkey() as i32)
             .fetch_all(&self.db)
             .await?;
-        let gccodes = rows.iter().map(|row| {
-            let code: String = row.get(0);
-            let lat: Option<f64> = row.get(1);
-            let lon: Option<f64> = row.get(2);
-            GcCode {
-                code,
-                approx_coord: match (lat, lon) {
-                    (Some(lat), Some(lon)) => Some(Coordinate { lat, lon }),
-                    _ => None,
-                },
-            }
-        }).collect();
+        let gccodes = rows
+            .iter()
+            .map(|row| {
+                let code: String = row.get(0);
+                let lat: Option<f64> = row.get(1);
+                let lon: Option<f64> = row.get(2);
+                GcCode {
+                    code,
+                    approx_coord: match (lat, lon) {
+                        (Some(lat), Some(lon)) => Some(Coordinate { lat, lon }),
+                        _ => None,
+                    },
+                }
+            })
+            .collect();
 
         Ok(gccodes)
     }
 
     async fn store_gccodes(&self, tile: &Tile, codes: &GcCodes) -> Result<(), Error> {
         let mut tx = self.db.begin().await?;
-        tx.execute(sqlx::query("DELETE FROM tiles_codes WHERE id = $1")
-            .bind(tile.quadkey() as i32))
-            .await?;
+        tx.execute(
+            sqlx::query("DELETE FROM tiles_codes WHERE id = $1").bind(tile.quadkey() as i32),
+        )
+        .await?;
         tx.execute(sqlx::query("INSERT INTO tiles2 (id, ts) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET ts = $2")
             .bind(tile.quadkey() as i32)
             .bind(Utc::now()))

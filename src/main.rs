@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use geojson::GeoJson;
 use rocket::form::Form;
+use rocket::fs::{relative, FileServer};
 use rocket::http::Accept;
 use rocket::response::Responder;
 use rocket::{data::ToByteUnit, Data, State};
@@ -63,6 +64,7 @@ async fn main() -> Result<(), Error> {
                 enqueue_area
             ],
         )
+        .mount("/static/", FileServer::from(relative!("/static")))
         .attach(Template::fairing())
         .launch()
         .await?;

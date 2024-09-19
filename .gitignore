@@ -2,3 +2,5 @@
 .vscode
 .envrc
 .idea
+.DS_Store
+release

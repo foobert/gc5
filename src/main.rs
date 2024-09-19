@@ -21,6 +21,7 @@ mod gcgeo;
 mod gc;
 mod job;
 mod track;
+mod area;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -48,7 +49,7 @@ async fn main() -> Result<(), Error> {
     let _rocket = rocket::build()
         .manage(jobs)
         .manage(cache)
-        .mount("/", routes![index, list_jobs, upload, fetch, enqueue_task, query_task, query_task_gpi])
+        .mount("/", routes![index, list_jobs, upload, fetch, enqueue_task, query_task, query_task_gpi, enqueue_area])
         .attach(Template::fairing())
         .launch()
         .await?;
@@ -138,6 +139,21 @@ async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResul
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
     let job = compute_track(track, jobs.inner()).await;
 
+    if let Some(geocaches) = job.get_geocaches() {
+        info!("Job {} is already done", job.id);
+        Ok(JobResult::Complete(geocaches, None))
+    } else {
+        info!("Job {} is still running", job.id);
+        Ok(JobResult::Incomplete(job.get_message()))
+    }
+}
+
+#[get("/area/<lat>/<lon>/<radius>")]
+async fn enqueue_area(lat: &str, lon: &str, radius: &str, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
+    let lat = lat.parse::<f64>().unwrap();
+    let lon = lon.parse::<f64>().unwrap();
+    let radius = radius.parse::<f64>().unwrap();
+    let job = compute_area(&Coordinate { lat, lon }, radius, jobs.inner()).await;
     if let Some(geocaches) = job.get_geocaches() {
         info!("Job {} is already done", job.id);
         Ok(JobResult::Complete(geocaches, None))

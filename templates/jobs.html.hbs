@@ -1,16 +1,41 @@
 <html>
-<body>
-<form action="/jobs" method="post" enctype="multipart/form-data">
-    <input type="file" name="file">
-    <input type="submit" value="Upload">
-</form>
+  <body>
+    <div>
 
-<ul>
-    {{#each jobs}}
-        <li>
-            {{this.0}} {{this.1}}, <a href="jobs/{{this.0}}/gpi">GPI</a>
-        </li>
-    {{/each}}
-</ul>
-</body>
+      <div>
+        <h1>Find Geocaches</h1>
+
+        <div>
+          <h2>Along a Track</h2>
+          <p>This will load <strong>traditional</strong> geocaches that are close to a GPX track.</p>
+
+          <form action="/jobs" method="post" enctype="multipart/form-data">
+            <input type="file" name="file">
+            <input type="submit" value="Upload">
+          </form>
+        </div>
+
+        <div>
+          <h2>In an Area</h2>
+          <p>This will load <strong>traditional</strong> geocaches that are around a coordinate.</p>
+
+          <form action="/area" method="post" enctype="multipart/form-data">
+            <input name="lat" type="text"/>
+            <input name="lon" type="text"/>
+            <input name="radius" type="text"/>
+            <input type="submit" value="Request"/>
+          </form>
+        </div>
+
+        <div>
+          <h2>Existing Jobs</h2>
+          <ul>
+            {{#each jobs}}
+            <li>
+              {{this.0}} {{this.1}}, <a href="jobs/{{this.0}}/gpi">GPI</a>
+            </li>
+            {{/each}}
+          </ul>
+        </div>
+  </body>
 </html>

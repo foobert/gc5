@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use geojson::GeoJson;
 use rocket::form::Form;
-use rocket::http::{Accept, RawStr};
+use rocket::http::Accept;
 use rocket::response::Responder;
 use rocket::{data::ToByteUnit, Data, State};
 use rocket_dyn_templates::{context, Template};
@@ -177,17 +177,27 @@ async fn enqueue_task(
     }
 }
 
-#[get("/area/<lat>/<lon>/<radius>")]
+#[derive(FromForm)]
+struct AreaRequest {
+    lat: f64,
+    lon: f64,
+    radius: f64,
+}
+
+#[post("/area", data = "<area>")]
 async fn enqueue_area(
-    lat: &str,
-    lon: &str,
-    radius: &str,
+    area: Form<AreaRequest>,
     jobs: &State<JobQueue>,
 ) -> Result<JobResult, rocket::http::Status> {
-    let lat = lat.parse::<f64>().unwrap();
-    let lon = lon.parse::<f64>().unwrap();
-    let radius = radius.parse::<f64>().unwrap();
-    let job = compute_area(&Coordinate { lat, lon }, radius, jobs.inner()).await;
+    let job = compute_area(
+        &Coordinate {
+            lat: area.lat,
+            lon: area.lon,
+        },
+        area.radius,
+        jobs.inner(),
+    )
+    .await;
     if let Some(geocaches) = job.get_geocaches() {
         info!("Job {} is already done", job.id);
         Ok(JobResult::Complete(geocaches, None))

@@ -57,7 +57,7 @@ impl Garmin {
                 &gpx_file.path().to_string_lossy(),
                 "-o",
                 &format!(
-                    "garmin_gpi,proximity=500m,bitmap={},sleep=1",
+                    "garmin_gpi,bitmap={},sleep=1",
                     image_file.path().to_string_lossy()
                 ),
                 "-F",

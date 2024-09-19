@@ -81,7 +81,7 @@ impl Job {
                 tile_len,
                 tile
             ));
-            let tmp = cache.discover(&tile).await.unwrap();
+            let tmp = cache.discover(tile).await.unwrap();
             tmp.data
                 .into_iter()
                 .filter(|code| pre_filter(code))
@@ -92,7 +92,7 @@ impl Job {
         let all_geocaches: Vec<Geocache> = cache.get(codes.clone()).await.unwrap();
         let selected = all_geocaches
             .into_iter()
-            .filter(|gc| post_filter(&gc))
+            .filter(|gc| post_filter(gc))
             .collect();
 
         {

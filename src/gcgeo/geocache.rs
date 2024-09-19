@@ -29,6 +29,8 @@ pub enum ContainerSize {
     Small,
     Regular,
     Large,
+    Other,
+    Virtual,
     Unknown,
 }
 
@@ -75,7 +77,13 @@ impl Geocache {
 impl ContainerSize {
     pub fn from(size: u64) -> Self {
         match size {
+            1 => Self::Unknown, // "not chosen" wtf
             2 => Self::Micro,
+            3 => Self::Regular,
+            4 => Self::Large,
+            5 => Self::Virtual,
+            6 => Self::Other,
+            8 => Self::Small,
             _ => Self::Unknown,
         }
     }

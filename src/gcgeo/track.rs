@@ -26,17 +26,25 @@ impl Track {
             })
             .collect();
 
-        let tiles = waypoints.iter()
+        let tiles = waypoints
+            .iter()
             .map(|coord| Tile::from_coordinates(coord.lat, coord.lon, 14))
             .flat_map(|tile| tile.around())
             .collect::<HashSet<Tile>>()
             .into_iter()
             .collect();
 
-        let line_string = LineString::from_iter(waypoints.iter()
-            .map(|coord| geo::coord! {x: coord.lon, y: coord.lat}));
+        let line_string = LineString::from_iter(
+            waypoints
+                .iter()
+                .map(|coord| geo::coord! {x: coord.lon, y: coord.lat}),
+        );
 
-        Ok(Track { tiles, waypoints, line_string })
+        Ok(Track {
+            tiles,
+            waypoints,
+            line_string,
+        })
     }
 
     pub fn near(&self, coord: &Coordinate) -> u16 {

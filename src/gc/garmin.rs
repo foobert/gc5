@@ -13,7 +13,11 @@ use super::cache::Error;
 pub struct Garmin {}
 
 impl Garmin {
-    pub fn gpx<W: Write>(geocaches: Vec<Geocache>, cache_type: &CacheType, writer: &mut W) -> Result<(), Error> {
+    pub fn gpx<W: Write>(
+        geocaches: Vec<Geocache>,
+        cache_type: &CacheType,
+        writer: &mut W,
+    ) -> Result<(), Error> {
         info!("Writing gpx");
         let mut gpx = gpx::Gpx::default();
         gpx.creator = Some(String::from("cachecache"));
@@ -34,9 +38,13 @@ impl Garmin {
         Ok(())
     }
 
-    pub fn gpi<W: ?Sized>(geocaches: Vec<Geocache>, cache_type: &CacheType, writer: &mut W) -> Result<(), Error>
-        where
-            W: Write,
+    pub fn gpi<W: ?Sized>(
+        geocaches: Vec<Geocache>,
+        cache_type: &CacheType,
+        writer: &mut W,
+    ) -> Result<(), Error>
+    where
+        W: Write,
     {
         let mut gpx_file = NamedTempFile::new()?;
         let mut gpi_file = NamedTempFile::new()?;

@@ -4,24 +4,25 @@ extern crate rocket;
 use std::str::FromStr;
 
 use geojson::GeoJson;
-use rocket::{Data, data::ToByteUnit, State};
 use rocket::form::Form;
-use rocket::http::Accept;
+use rocket::http::{Accept, RawStr};
 use rocket::response::Responder;
+use rocket::{data::ToByteUnit, Data, State};
 use rocket_dyn_templates::{context, Template};
 use thiserror::Error;
 
+use crate::area::compute_area;
+use crate::gcgeo::Coordinate;
+use crate::job::JobQueue;
+use crate::track::compute_track;
 use gc::Cache;
 use gcgeo::{CacheType, Geocache};
 
-use crate::job::JobQueue;
-use crate::track::compute_track;
-
-mod gcgeo;
+mod area;
 mod gc;
+mod gcgeo;
 mod job;
 mod track;
-mod area;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -49,7 +50,19 @@ async fn main() -> Result<(), Error> {
     let _rocket = rocket::build()
         .manage(jobs)
         .manage(cache)
-        .mount("/", routes![index, list_jobs, upload, fetch, enqueue_task, query_task, query_task_gpi, enqueue_area])
+        .mount(
+            "/",
+            routes![
+                index,
+                list_jobs,
+                upload,
+                fetch,
+                enqueue_task,
+                query_task,
+                query_task_gpi,
+                enqueue_area
+            ],
+        )
         .attach(Template::fairing())
         .launch()
         .await?;
@@ -89,7 +102,10 @@ impl<'a> Responder<'a, 'static> for JobResult {
                         gc::garmin::Garmin::gpi(data, &CacheType::Traditional, &mut output)
                             .expect("gpi writing failed");
                         rocket::response::Response::build()
-                            .header(rocket::http::ContentType::parse_flexible("application/gpi").unwrap())
+                            .header(
+                                rocket::http::ContentType::parse_flexible("application/gpi")
+                                    .unwrap(),
+                            )
                             .sized_body(output.len(), std::io::Cursor::new(output))
                             .ok()
                     }
@@ -102,29 +118,39 @@ impl<'a> Responder<'a, 'static> for JobResult {
                     }
                 }
             }
-            JobResult::Incomplete(message) => {
-                rocket::response::Response::build()
-                    .header(rocket::http::ContentType::Plain)
-                    .sized_body(message.len(), std::io::Cursor::new(message))
-                    .ok()
-            }
+            JobResult::Incomplete(message) => rocket::response::Response::build()
+                .header(rocket::http::ContentType::Plain)
+                .sized_body(message.len(), std::io::Cursor::new(message))
+                .ok(),
         }
     }
 }
 
 fn bundle_geojson(data: Vec<Geocache>) -> GeoJson {
-    let features: Vec<geojson::Feature> = data.iter().map(|gc| {
-        let mut properties = geojson::JsonObject::new();
-        properties.insert("name".to_string(), geojson::JsonValue::from(gc.code.clone()));
-        properties.insert("marker-color".to_string(), geojson::JsonValue::from("#000000"));
-        geojson::Feature {
-            properties: Some(properties),
-            geometry: Some(geojson::Geometry::new(geojson::Value::Point(vec![gc.coord.lon, gc.coord.lat]))),
-            bbox: None,
-            id: None,
-            foreign_members: None,
-        }
-    }).collect();
+    let features: Vec<geojson::Feature> = data
+        .iter()
+        .map(|gc| {
+            let mut properties = geojson::JsonObject::new();
+            properties.insert(
+                "name".to_string(),
+                geojson::JsonValue::from(gc.code.clone()),
+            );
+            properties.insert(
+                "marker-color".to_string(),
+                geojson::JsonValue::from("#000000"),
+            );
+            geojson::Feature {
+                properties: Some(properties),
+                geometry: Some(geojson::Geometry::new(geojson::Value::Point(vec![
+                    gc.coord.lon,
+                    gc.coord.lat,
+                ]))),
+                bbox: None,
+                id: None,
+                foreign_members: None,
+            }
+        })
+        .collect();
     GeoJson::FeatureCollection(geojson::FeatureCollection {
         features,
         bbox: None,
@@ -133,7 +159,10 @@ fn bundle_geojson(data: Vec<Geocache>) -> GeoJson {
 }
 
 #[post("/track", data = "<data>")]
-async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
+async fn enqueue_task(
+    data: Data<'_>,
+    jobs: &State<JobQueue>,
+) -> Result<JobResult, rocket::http::Status> {
     let data_stream = data.open(10.megabytes());
     let reader = data_stream.into_bytes().await.unwrap();
     let track = gcgeo::Track::from_gpx(reader.as_slice()).unwrap();
@@ -149,7 +178,12 @@ async fn enqueue_task(data: Data<'_>, jobs: &State<JobQueue>) -> Result<JobResul
 }
 
 #[get("/area/<lat>/<lon>/<radius>")]
-async fn enqueue_area(lat: &str, lon: &str, radius: &str, jobs: &State<JobQueue>) -> Result<JobResult, rocket::http::Status> {
+async fn enqueue_area(
+    lat: &str,
+    lon: &str,
+    radius: &str,
+    jobs: &State<JobQueue>,
+) -> Result<JobResult, rocket::http::Status> {
     let lat = lat.parse::<f64>().unwrap();
     let lon = lon.parse::<f64>().unwrap();
     let radius = radius.parse::<f64>().unwrap();
@@ -198,7 +232,10 @@ async fn query_task(job_id: &str, jobs: &State<JobQueue>) -> JobResult {
 async fn query_task_gpi(job_id: &str, jobs: &State<JobQueue>) -> JobResult {
     let job = jobs.get(job_id).unwrap();
     if let Some(geocaches) = job.get_geocaches() {
-        JobResult::Complete(geocaches, Some(Accept::from_str("application/gpi").unwrap()))
+        JobResult::Complete(
+            geocaches,
+            Some(Accept::from_str("application/gpi").unwrap()),
+        )
     } else {
         JobResult::Incomplete(job.get_message())
     }

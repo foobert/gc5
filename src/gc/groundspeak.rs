@@ -107,7 +107,11 @@ impl Groundspeak {
         Ok(codes)
     }
 
-    pub async fn fetch(&self, token: &str, codes: Vec<&String>) -> Result<Vec<serde_json::Value>, Error> {
+    pub async fn fetch(
+        &self,
+        token: &str,
+        codes: Vec<&String>,
+    ) -> Result<Vec<serde_json::Value>, Error> {
         if codes.len() > BATCH_SIZE {
             return Err(Error::Unknown);
         }
@@ -121,7 +125,12 @@ impl Groundspeak {
             .header(reqwest::header::ACCEPT_LANGUAGE, "en-US;q=1")
             .header(reqwest::header::USER_AGENT, Groundspeak::USER_AGENT_FETCH)
             .bearer_auth(token)
-            .query(&[("referenceCodes", comma_separated_codes), ("lite", "true".to_string()), ("fields", Self::FETCH_FIELDS.to_string()), ("expand", Self::EXPAND_FIELDS.to_string())])
+            .query(&[
+                ("referenceCodes", comma_separated_codes),
+                ("lite", "true".to_string()),
+                ("fields", Self::FETCH_FIELDS.to_string()),
+                ("expand", Self::EXPAND_FIELDS.to_string()),
+            ])
             .send()
             .await?;
         debug!("fetch status {}", response.status().as_str());
@@ -151,8 +160,12 @@ pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
     let name = String::from(v["name"].as_str().ok_or(Error::JsonRaw)?);
     let terrain = v["terrain"].as_f64().ok_or(Error::JsonRaw)? as f32;
     let difficulty = v["difficulty"].as_f64().ok_or(Error::JsonRaw)? as f32;
-    let lat = v["postedCoordinates"]["latitude"].as_f64().ok_or(Error::JsonRaw)?;
-    let lon = v["postedCoordinates"]["longitude"].as_f64().ok_or(Error::JsonRaw)?;
+    let lat = v["postedCoordinates"]["latitude"]
+        .as_f64()
+        .ok_or(Error::JsonRaw)?;
+    let lon = v["postedCoordinates"]["longitude"]
+        .as_f64()
+        .ok_or(Error::JsonRaw)?;
     /* not availble for lite=true
     let short_description = String::from(v["shortDescription"].as_str().ok_or(Error::JsonRaw)?);
     let long_description = String::from(v["longDescription"].as_str().ok_or(Error::JsonRaw)?);
@@ -162,21 +175,13 @@ pub fn parse(v: &serde_json::Value) -> Result<Geocache, Error> {
     let long_description = String::new();
     let encoded_hints = String::new();
 
-    let size = ContainerSize::from(
-        v["geocacheSize"]["id"]
-            .as_u64()
-            .ok_or(Error::JsonRaw)?,
-    );
-    let cache_type = CacheType::from(
-        v["geocacheType"]["id"]
-            .as_u64()
-            .ok_or(Error::JsonRaw)?,
-    );
+    let size = ContainerSize::from(v["geocacheSize"]["id"].as_u64().ok_or(Error::JsonRaw)?);
+    let cache_type = CacheType::from(v["geocacheType"]["id"].as_u64().ok_or(Error::JsonRaw)?);
     let available = v["status"].as_str().ok_or(Error::JsonRaw)? == "Active";
     // TODO archived?
     let archived = false; //v["Archived"].as_bool().ok_or(Error::JsonRaw)?;
-    // not available for lite=true
-    // let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<GeocacheLog>, Error>>()?;
+                          // not available for lite=true
+                          // let logs = v["geocacheLogs"].as_array().ok_or(Error::JsonRaw)?.iter().map(parse_geocache_log).collect::<Result<Vec<GeocacheLog>, Error>>()?;
     let logs = vec![];
 
     Ok(Geocache {

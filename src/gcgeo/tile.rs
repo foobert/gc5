@@ -43,7 +43,7 @@ impl Tile {
             y: self.y + 1,
             z: self.z,
         }
-            .to_coord()
+        .to_coord()
     }
 
     pub fn quadkey(&self) -> u32 {

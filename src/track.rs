@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::gc::Cache;
 use crate::gc::groundspeak::GcCode;
+use crate::gc::Cache;
 use crate::gcgeo::{CacheType, Geocache, Track};
 use crate::job::{Job, JobQueue};
 
@@ -12,19 +12,21 @@ pub async fn compute_track(track: Track, jobs: &JobQueue) -> Arc<Job> {
     let tiles = track.tiles;
 
     let pre_filter = {
-        move |gc: &GcCode|
-            match &gc.approx_coord {
-                Some(coord) => track_pre_filter.near(&coord) <= 100,
-                None => { true }
-            }
+        move |gc: &GcCode| match &gc.approx_coord {
+            Some(coord) => track_pre_filter.near(&coord) <= 100,
+            None => true,
+        }
     };
-    let post_filter = move |gc: &Geocache| is_active(gc) && is_quick_stop(gc) && track_post_filter.near(&gc.coord) <= 100;
+    let post_filter = move |gc: &Geocache| {
+        is_active(gc) && is_quick_stop(gc) && track_post_filter.near(&gc.coord) <= 100
+    };
     let job = Arc::new(Job::new());
     let job_for_result = job.clone();
     jobs.add(job.clone());
     let handle = tokio::task::spawn(async move {
         let cache = Cache::new_lite().await.unwrap();
-        job.process_filtered(tiles, &cache, pre_filter, post_filter).await;
+        job.process_filtered(tiles, &cache, pre_filter, post_filter)
+            .await;
     });
 
     // If everything is already cached, the job will finish very quickly, and we can immediately return the result

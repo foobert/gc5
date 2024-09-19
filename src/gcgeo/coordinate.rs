@@ -26,12 +26,12 @@ impl Coordinate {
 
         let lat_rad2 = (lat_rad.sin() * (distance / Self::EARTH_RADIUS as f64).cos()
             + lat_rad.cos() * (distance / Self::EARTH_RADIUS as f64).sin() * bearing_rad.cos())
-            .asin();
+        .asin();
         let mut lon_rad2 = lon_rad
             + (bearing_rad.sin() * (distance / Self::EARTH_RADIUS as f64).sin() * lat_rad.cos())
-            .atan2(
-                (distance / Self::EARTH_RADIUS as f64).cos() - lat_rad.sin() * lat_rad2.sin(),
-            );
+                .atan2(
+                    (distance / Self::EARTH_RADIUS as f64).cos() - lat_rad.sin() * lat_rad2.sin(),
+                );
 
         // The longitude can be normalised to −180…+180 using (lon+540)%360-180
         lon_rad2 = (lon_rad2 + 540.0) % 360.0 - 180.0;

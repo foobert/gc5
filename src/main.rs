@@ -2,6 +2,9 @@
 extern crate rocket;
 
 use std::str::FromStr;
+use std::time::SystemTime;
+
+use chrono::Local;
 
 use geojson::GeoJson;
 use rocket::form::Form;
@@ -61,7 +64,8 @@ async fn main() -> Result<(), Error> {
                 enqueue_task,
                 query_task,
                 query_task_gpi,
-                enqueue_area
+                enqueue_area,
+                test_route
             ],
         )
         .mount("/static/", FileServer::from(relative!("/static")))
@@ -251,6 +255,11 @@ async fn query_task_gpi(job_id: &str, jobs: &State<JobQueue>) -> JobResult {
     } else {
         JobResult::Incomplete(job.get_message())
     }
+}
+
+#[get("/test")]
+fn test_route() -> String {
+    return Local::now().to_rfc3339();
 }
 
 // for debugging, needed?

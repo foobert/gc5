@@ -4,12 +4,23 @@
     <link type="image/png" sizes="16x16" rel="icon" href="static/icon-16.png">
     <link type="image/png" sizes="32x32" rel="icon" href="static/icon-32.png">
     <link type="image/png" sizes="96x96" rel="icon" href="static/icon-96.png">
+    <script src="static/htmx-2.0.2.js"></script>
   </head>
   <body>
     <div>
 
       <div>
         <h1>Find Geocaches</h1>
+
+
+        <div>
+          jobs will show up here?
+          <div id="jobs">
+            empty by default
+          </div>
+
+          <a hx-target="#jobs" hx-swap="innerHTML" hx-get="/test">refresh?</a>
+          </div>
 
         <div>
           <h2>Along a Track</h2>
